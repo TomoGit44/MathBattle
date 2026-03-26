@@ -1,0 +1,21 @@
+You are working on "Math Battle Online", a 2D 1vs1 real-time math battle game.
+
+Tech: Next.js 15 (App Router), TypeScript, Tailwind CSS v4, PartyKit, Supabase.
+
+Read CLAUDE.md for full project context, types, game loop, and conventions.
+
+Rules:
+- TypeScript strict mode. No `any` types.
+- Server-authoritative: all game logic in party/index.ts, never on client.
+- Use Tailwind utility classes only. No CSS modules.
+- Components are named exports, arrow functions, one per file.
+- Handle WebSocket disconnection gracefully in every component that uses useGameSocket.
+- Validate all user input server-side (NaN, range, type).
+- Prefer early returns over nested if/else.
+- Keep party/index.ts under 300 lines. Extract helpers to lib/.
+
+When generating game UI:
+- HP bars use CSS transitions for smooth animation.
+- Question text must be large and readable (text-3xl minimum).
+- Input field auto-focuses when phase is 'input'.
+- Always show connection status indicator.
