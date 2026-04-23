@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next:*)",
+      "Bash(ls node_modules/partykit/server*)",
+      "Bash(timeout 10 npx partykit dev)",
+      "Bash(timeout 5 npx tsx server/index.ts)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsx:*)"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "name": "math-battle",
+  "main": "party/index.ts"
+}
