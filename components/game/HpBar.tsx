@@ -12,17 +12,21 @@ export const HpBar = ({ name, hp, isMe }: HpBarProps) => {
     percent > 50 ? 'bg-green-500' : percent > 25 ? 'bg-yellow-500' : 'bg-red-500'
 
   return (
-    <div className={`flex items-center gap-2 ${isMe ? '' : 'flex-row-reverse'}`}>
-      <span className={`text-sm font-bold ${isMe ? 'text-blue-400' : 'text-red-400'}`}>
+    <div className={`flex items-center gap-1 sm:gap-2 min-w-0 ${isMe ? '' : 'flex-row-reverse'}`}>
+      <span
+        className={`text-xs sm:text-sm font-bold truncate max-w-[60px] sm:max-w-none ${
+          isMe ? 'text-blue-400' : 'text-red-400'
+        }`}
+      >
         {name}
       </span>
-      <div className="w-40 h-4 bg-gray-700 rounded-full overflow-hidden">
+      <div className="w-20 sm:w-40 h-3 sm:h-4 bg-gray-700 rounded-full overflow-hidden">
         <div
           className={`h-full ${color} transition-all duration-500 rounded-full`}
           style={{ width: `${percent}%` }}
         />
       </div>
-      <span className="text-xs text-gray-400 w-8 text-center">{hp}</span>
+      <span className="text-[10px] sm:text-xs text-gray-400 w-6 sm:w-8 text-center">{hp}</span>
     </div>
   )
 }

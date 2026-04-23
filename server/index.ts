@@ -254,7 +254,8 @@ const handleDisconnect = (room: Room, connId: string) => {
 }
 
 // --- HTTP + WebSocket サーバー起動 ---
-const PORT = 1999
+// Render等のホスティングは PORT 環境変数を渡してくる
+const PORT = Number(process.env.PORT) || 1999
 let connCounter = 0
 
 const httpServer = createServer((req, res) => {

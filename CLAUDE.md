@@ -335,9 +335,17 @@ npx next build           # プロダクションビルド確認
 
 実装は `lib/config.ts`。サーバー (`server/index.ts`) が `loadConfig()` を起動時に1回呼ぶ。
 
+## デプロイ
+
+スマホで遊ぶための公開デプロイ手順は [`DEPLOYMENT.md`](./DEPLOYMENT.md) に記載。
+- フロントエンド: **Vercel** (Next.js)
+- WebSocketサーバー: **Render** (`server/index.ts` を `npm run start:server` で起動)
+- 環境変数 `NEXT_PUBLIC_WS_URL` で Vercel ↔ Render を接続
+
 ## 環境変数
 ```
-NEXT_PUBLIC_PARTYKIT_HOST=   # 未使用 (将来のデプロイ用に予約)
+NEXT_PUBLIC_WS_URL=          # WebSocketサーバーのURL (例: wss://mathbattle-ws.onrender.com)
+NEXT_PUBLIC_PARTYKIT_HOST=   # 後方互換 (host:port 形式、wssは自動付与)
 # 以下は Supabase 統合時に追加予定
 # NEXT_PUBLIC_SUPABASE_URL=
 # NEXT_PUBLIC_SUPABASE_ANON_KEY=

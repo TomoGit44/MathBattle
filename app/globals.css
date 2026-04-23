@@ -1,1 +1,34 @@
 @import "tailwindcss";
+
+/* スマホ最適化 */
+html {
+  /* iOS Safari でのダブルタップ拡大を防止 */
+  touch-action: manipulation;
+  /* iOSのバウンス防止 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* テキスト選択をUI操作で誤発生させない */
+  -webkit-user-select: none;
+  user-select: none;
+  /* iOSのタップ時ハイライト除去 */
+  -webkit-tap-highlight-color: transparent;
+  /* スマホでのスクロールバウンス防止 */
+  overscroll-behavior: none;
+}
+
+/* 入力欄だけは選択を許可 */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* セーフエリア (iPhoneのノッチ等) */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}

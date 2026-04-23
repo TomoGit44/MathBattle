@@ -153,29 +153,29 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
 
       {/* モード選択 */}
       {mode === null && (
-        <div className="flex gap-3 justify-center flex-wrap">
+        <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
           <button
             onClick={() => setMode('move')}
-            className="px-4 py-2 bg-cyan-700 hover:bg-cyan-600 rounded-lg font-bold transition-colors"
+            className="px-4 py-3 sm:py-2 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded-lg font-bold transition-colors touch-manipulation"
           >
             移動
           </button>
           <button
             onClick={() => setMode('calculate')}
-            className="px-4 py-2 bg-purple-700 hover:bg-purple-600 rounded-lg font-bold transition-colors"
+            className="px-4 py-3 sm:py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 rounded-lg font-bold transition-colors touch-manipulation"
           >
             計算
           </button>
           <button
             onClick={() => setMode('attack')}
-            className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded-lg font-bold transition-colors"
+            className="px-4 py-3 sm:py-2 bg-red-700 active:bg-red-800 hover:bg-red-600 rounded-lg font-bold transition-colors touch-manipulation"
           >
             攻撃
           </button>
           <button
             onClick={() => setMode('function')}
             disabled={functionUsesRemaining <= 0}
-            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors"
+            className="px-4 py-3 sm:py-2 bg-emerald-700 active:bg-emerald-800 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
           >
             関数 ({functionUsesRemaining})
           </button>
@@ -187,33 +187,33 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
         <div className="flex flex-col items-center gap-1">
           <button
             onClick={() => submit({ type: 'move', direction: 'up' })}
-            className="w-12 h-10 bg-cyan-700 hover:bg-cyan-600 rounded font-bold"
+            className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
           >
             ↑
           </button>
           <div className="flex gap-1">
             <button
               onClick={() => submit({ type: 'move', direction: 'left' })}
-              className="w-12 h-10 bg-cyan-700 hover:bg-cyan-600 rounded font-bold"
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
             >
               ←
             </button>
             <button
               onClick={reset}
-              className="w-12 h-10 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-gray-700 active:bg-gray-800 hover:bg-gray-600 rounded text-sm touch-manipulation"
             >
               戻
             </button>
             <button
               onClick={() => submit({ type: 'move', direction: 'right' })}
-              className="w-12 h-10 bg-cyan-700 hover:bg-cyan-600 rounded font-bold"
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
             >
               →
             </button>
           </div>
           <button
             onClick={() => submit({ type: 'move', direction: 'down' })}
-            className="w-12 h-10 bg-cyan-700 hover:bg-cyan-600 rounded font-bold"
+            className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
           >
             ↓
           </button>

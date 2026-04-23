@@ -35,7 +35,7 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
   }, [phase, turn])
 
   return (
-    <div className="flex flex-col items-center min-h-screen p-4 gap-3 max-w-3xl mx-auto">
+    <div className="flex flex-col items-center min-h-[100dvh] p-2 sm:p-4 gap-2 sm:gap-3 max-w-3xl mx-auto">
       {/* ヘッダー: ターン情報 */}
       <div className="flex items-center justify-between w-full">
         <HpBar name={me.name} hp={me.hp} isMe />

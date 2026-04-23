@@ -18,7 +18,8 @@ const getLabel = (item: HandItem): string => {
 }
 
 const getStyle = (item: HandItem, selected: boolean): string => {
-  const base = 'w-12 h-16 rounded-lg border-2 flex items-center justify-center font-bold text-lg cursor-pointer transition-all'
+  // タッチターゲット最小 44px (Apple HIG / Material Guidelines)
+  const base = 'w-11 h-14 sm:w-12 sm:h-16 rounded-lg border-2 flex items-center justify-center font-bold text-base sm:text-lg cursor-pointer transition-all touch-manipulation'
 
   if (selected) {
     return `${base} border-yellow-400 bg-yellow-900 text-yellow-200 scale-110`
@@ -36,7 +37,7 @@ const getStyle = (item: HandItem, selected: boolean): string => {
 
 export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disabledIndices }: HandDisplayProps) => {
   return (
-    <div className="flex gap-2 justify-center flex-wrap">
+    <div className="flex gap-1.5 sm:gap-2 justify-center flex-wrap">
       {hand.map((item, index) => {
         const isDisabled = !selectable || disabledIndices?.has(index)
         const isPrime =

@@ -1,0 +1,20 @@
+# Render の Blueprint 定義
+# https://render.com/docs/blueprint-spec
+#
+# 使い方:
+#   1. このリポジトリを GitHub にプッシュ
+#   2. Render ダッシュボード → "New +" → "Blueprint" → このリポジトリを選択
+#   3. 自動で WebSocket サーバーがデプロイされる
+
+services:
+  - type: web
+    name: mathbattle-ws
+    runtime: node
+    plan: free            # 無料プラン (15分アイドルでスリープ)
+    region: singapore     # 日本に近いリージョン
+    buildCommand: npm install
+    startCommand: npm run start:server
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20

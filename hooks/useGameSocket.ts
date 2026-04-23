@@ -14,9 +14,21 @@ export const useGameSocket = (roomId: string, playerName: string) => {
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? 'localhost:1999'
-    const protocol = host.startsWith('localhost') ? 'ws' : 'wss'
-    const url = `${protocol}://${host}/room/${roomId}`
+    // 接続URL解決の優先順位:
+    //   1. NEXT_PUBLIC_WS_URL (例: "wss://mathbattle-ws.onrender.com")
+    //   2. NEXT_PUBLIC_PARTYKIT_HOST (例: "mathbattle.example.com")
+    //   3. localhost:1999 (ローカル開発時)
+    const wsUrlBase = process.env.NEXT_PUBLIC_WS_URL
+    let url: string
+    if (wsUrlBase) {
+      // 末尾スラッシュを除去
+      const trimmed = wsUrlBase.replace(/\/+$/, '')
+      url = `${trimmed}/room/${roomId}`
+    } else {
+      const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? 'localhost:1999'
+      const protocol = host.startsWith('localhost') || host.startsWith('127.') ? 'ws' : 'wss'
+      url = `${protocol}://${host}/room/${roomId}`
+    }
 
     const socket = new WebSocket(url)
     socketRef.current = socket
