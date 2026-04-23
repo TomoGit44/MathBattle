@@ -25,7 +25,7 @@ import {
   FUNCTION_DAMAGE,
   NUMBER_REPLENISH_THRESHOLD,
 } from './constants'
-import { shuffleDeck, drawCards } from './deck'
+import { shuffleDeck, drawCards, createDefaultDeck } from './deck'
 import { applyCalculation } from './calc-engine'
 import { applyFunction } from './func-engine'
 import { createBullet, tickBullets, checkBulletCollisions, checkPlayerHits } from './physics'
@@ -106,7 +106,12 @@ export const executeDraw = (
   const drawnCards: Record<string, HandItem[]> = {}
 
   for (const [id, player] of Object.entries(newPlayers)) {
-    const deck = newDecks.get(id) ?? []
+    let deck = newDecks.get(id) ?? []
+    // デッキが空なら新しいシャッフル済みデフォルトデッキで補充
+    if (deck.length === 0) {
+      deck = shuffleDeck(createDefaultDeck())
+      newDecks.set(id, deck)
+    }
     const canDraw = Math.min(DRAW_COUNT, deck.length, MAX_HAND_SIZE - player.hand.length)
     let handAfter = player.hand
     let drawnList: HandItem[] = []
