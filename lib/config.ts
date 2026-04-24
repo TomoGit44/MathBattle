@@ -4,43 +4,39 @@
 //
 // 設定値:
 //   actionTimeoutSec:     アクション選択フェーズのタイムアウト (秒)。0 以下で時間制限なし
-//   bulletDiameter:       弾の当たり判定の直径 (数学単位)。例: 1 → 1マス分の直径
-//   playerDiameter:       プレイヤーの当たり判定の直径 (数学単位)
-//   moveDistance:         1ターンあたりの移動距離 (数学単位)
+//   bulletDiameter:       弾の当たり判定の直径 (px)
+//   playerDiameter:       プレイヤーの当たり判定の直径 (px)
+//   moveDistance:         1ターンあたりの移動距離 (px)
 //   wallReflectionBonus:  壁反射時に弾の数値に加算される量 (整数、単位なし)
+//   mathXMax:             数学座標の x 軸の右端 (左端は -mathXMax、対称)
+//                         y 軸の上下端はフィールドのアスペクト比から自動計算
 //
-// 数学座標系: x ∈ [-10, 10], y ∈ [-5, 5]、フィールド 800×400px → 1 数学単位 = 40px
+// フィールドは 800×400 px で固定。mathXMax から pixelsPerUnit と mathYMax が導出される
+// (数学座標 ↔ ピクセル変換に使う)。サイズ系は px 指定なので mathXMax を変えても視覚サイズは不変。
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import { FIELD_WIDTH, FIELD_HEIGHT } from './constants'
+import type { GameSettings } from './types'
 
-// 数学単位 → ピクセル変換係数
-export const PIXELS_PER_UNIT = 40
+export type { GameSettings }
 
 export interface GameConfig {
-  // アクション選択タイムアウト (秒)。0以下で無制限
   actionTimeoutSec: number
-  // 当たり判定など (数学単位、生の設定値)
   bulletDiameter: number
   playerDiameter: number
   moveDistance: number
   wallReflectionBonus: number
-}
-
-// クライアント・サーバーの両方で使う、ピクセルに変換済みの設定
-export interface GameSettings {
-  bulletRadius: number   // px
-  playerRadius: number   // px
-  moveDistance: number   // px
-  wallReflectionBonus: number
+  mathXMax: number
 }
 
 const DEFAULT_CONFIG: GameConfig = {
   actionTimeoutSec: 45,
-  bulletDiameter: 0.5,         // 既存の 10px 半径 = 20px 直径 = 0.5 数学単位 相当
-  playerDiameter: 1.2,         // 既存の 24px 半径 = 48px 直径 = 1.2 数学単位 相当
-  moveDistance: 1,             // 既存の 40px = 1 数学単位 相当
+  bulletDiameter: 20,  // px (旧 BULLET_SIZE=10 の半径→直径)
+  playerDiameter: 48,  // px (旧 PLAYER_SIZE=24 の半径→直径)
+  moveDistance: 40,    // px
   wallReflectionBonus: 3,
+  mathXMax: 10,
 }
 
 const CONFIG_PATH = resolve(process.cwd(), 'game-config.json')
@@ -71,17 +67,28 @@ const validate = (raw: unknown): GameConfig => {
   if (isNonNegativeNumber(obj.wallReflectionBonus)) {
     cfg.wallReflectionBonus = obj.wallReflectionBonus
   }
+  if (isPositiveNumber(obj.mathXMax)) {
+    cfg.mathXMax = obj.mathXMax
+  }
 
   return cfg
 }
 
-// 数学単位の設定をピクセル単位の GameSettings に変換
-export const toGameSettings = (cfg: GameConfig): GameSettings => ({
-  bulletRadius: (cfg.bulletDiameter / 2) * PIXELS_PER_UNIT,
-  playerRadius: (cfg.playerDiameter / 2) * PIXELS_PER_UNIT,
-  moveDistance: cfg.moveDistance * PIXELS_PER_UNIT,
-  wallReflectionBonus: cfg.wallReflectionBonus,
-})
+// GameConfig → 解決済みの GameSettings
+// サイズは px 指定なので pixelsPerUnit は数学座標変換専用 (サイズには掛けない)。
+export const toGameSettings = (cfg: GameConfig): GameSettings => {
+  const pixelsPerUnit = FIELD_WIDTH / (2 * cfg.mathXMax)
+  const mathYMax = (FIELD_HEIGHT / 2) / pixelsPerUnit
+  return {
+    bulletRadius: cfg.bulletDiameter / 2,
+    playerRadius: cfg.playerDiameter / 2,
+    moveDistance: cfg.moveDistance,
+    wallReflectionBonus: cfg.wallReflectionBonus,
+    mathXMax: cfg.mathXMax,
+    mathYMax,
+    pixelsPerUnit,
+  }
+}
 
 export const loadConfig = (): GameConfig => {
   try {
@@ -100,5 +107,4 @@ export const loadConfig = (): GameConfig => {
   }
 }
 
-// アクションタイムアウトが「無制限」かどうか
 export const isUnlimited = (cfg: GameConfig): boolean => cfg.actionTimeoutSec <= 0

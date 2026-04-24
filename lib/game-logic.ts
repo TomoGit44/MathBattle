@@ -39,11 +39,15 @@ import { checkCurveDamages } from './curve-collision'
 import { isPrimeBullet } from './prime'
 
 // 設定ファイルが無い場合に使うデフォルト設定 (既存の constants と同等)
+// 旧来の mathXMax=10 / mathYMax=5 → pixelsPerUnit=40 相当
 const DEFAULT_SETTINGS: GameSettings = {
   bulletRadius: BULLET_SIZE,
   playerRadius: PLAYER_SIZE,
   moveDistance: MOVE_DISTANCE,
   wallReflectionBonus: WALL_REFLECTION_BONUS,
+  mathXMax: 10,
+  mathYMax: 5,
+  pixelsPerUnit: 40,
 }
 
 export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({
@@ -71,6 +75,7 @@ export const addPlayer = (
     hand: [],
     deckRemaining: 0,
     functionUsesRemaining: MAX_FUNCTION_USES,
+    hasMovedThisTurn: false,
   }
   return {
     ...state,
@@ -148,6 +153,7 @@ export const executeDraw = (
       ...player,
       hand: replenishedHand,
       deckRemaining: remainingDeck.length,
+      hasMovedThisTurn: false, // 新ターン開始: 移動可能状態に戻す
     }
   }
 
@@ -181,6 +187,54 @@ const describeAction = (action: Action, player: PlayerState): string => {
     }
     case 'function':
       return `${player.name} が関数を定義`
+    case 'skip':
+      return `${player.name} はスキップ`
+    case 'skip_move':
+      return `${player.name} は移動しなかった`
+  }
+}
+
+// 即時移動 (サーバーが action フェーズ中に直接呼ぶ)
+// すでに移動済みなら null を返す
+export const applyImmediateMove = (
+  state: GameState,
+  playerId: string,
+  direction: 'up' | 'down' | 'left' | 'right'
+): GameState | null => {
+  const player = state.players[playerId]
+  if (!player) return null
+  if (player.hasMovedThisTurn) return null
+
+  let { x, y } = player.position
+  const dist = state.settings.moveDistance
+  switch (direction) {
+    case 'up': y -= dist; break
+    case 'down': y += dist; break
+    case 'left': x -= dist; break
+    case 'right': x += dist; break
+  }
+  const clamped = clampPosition(x, y, state.fieldSize, state.settings.playerRadius)
+
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [playerId]: { ...player, position: clamped, hasMovedThisTurn: true },
+    },
+  }
+}
+
+// 移動フェーズで「移動しない」を選択したときに hasMovedThisTurn だけ立てる
+export const markMoveSkipped = (state: GameState, playerId: string): GameState | null => {
+  const player = state.players[playerId]
+  if (!player) return null
+  if (player.hasMovedThisTurn) return null
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [playerId]: { ...player, hasMovedThisTurn: true },
+    },
   }
 }
 
@@ -206,16 +260,15 @@ export const resolveActions = (
 
     switch (action.type) {
       case 'move': {
-        let { x, y } = player.position
-        const dist = state.settings.moveDistance
-        switch (action.direction) {
-          case 'up': y -= dist; break
-          case 'down': y += dist; break
-          case 'left': x -= dist; break
-          case 'right': x += dist; break
-        }
-        const clamped = clampPosition(x, y, state.fieldSize, state.settings.playerRadius)
-        players[id] = { ...player, position: clamped }
+        // 移動は action フェーズ中に即時適用済み。ここでは何もしない
+        break
+      }
+      case 'skip': {
+        // スキップ: 何もしない
+        break
+      }
+      case 'skip_move': {
+        // skip_move は即時処理済み。ここでは何もしない
         break
       }
       case 'calculate': {
@@ -301,7 +354,7 @@ export const resolveActions = (
   }
 
   // 曲線ダメージ判定
-  const curveDmgs = checkCurveDamages(curves, players, FUNCTION_DAMAGE)
+  const curveDmgs = checkCurveDamages(curves, players, FUNCTION_DAMAGE, state.settings)
   for (const [id, dmg] of Object.entries(curveDmgs)) {
     totalDamages[id] = (totalDamages[id] ?? 0) + dmg
     turnResult.curveDamages[id] = dmg
@@ -349,6 +402,7 @@ export const sanitizeStateForPlayer = (
         handCount: opponentEntry[1].hand.length,
         deckRemaining: opponentEntry[1].deckRemaining,
         functionUsesRemaining: opponentEntry[1].functionUsesRemaining,
+        hasMovedThisTurn: opponentEntry[1].hasMovedThisTurn,
       }
     : {
         id: '',
@@ -359,6 +413,7 @@ export const sanitizeStateForPlayer = (
         handCount: 0,
         deckRemaining: 0,
         functionUsesRemaining: MAX_FUNCTION_USES,
+        hasMovedThisTurn: false,
       }
 
   return {

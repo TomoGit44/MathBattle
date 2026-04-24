@@ -52,11 +52,15 @@ export interface FunctionCurve {
 }
 
 // --- アクション ---
+// move/calculate は即時適用される。attack/function/skip は「メインアクション」で、
+// 両プレイヤーが submit するとターンが解決される。
 export type Action =
   | { type: 'move'; direction: 'up' | 'down' | 'left' | 'right' }
+  | { type: 'skip_move' }  // 移動フェーズで「移動しない」を選択 (即時処理)
   | { type: 'calculate'; cardIndices: number[] }
   | { type: 'attack'; handIndex: number }
   | { type: 'function'; cardIndices: number[]; xPositions: number[] }
+  | { type: 'skip' }       // メインアクションをスキップ
 
 // --- プレイヤー ---
 export interface PlayerState {
@@ -68,6 +72,7 @@ export interface PlayerState {
   hand: HandItem[]
   deckRemaining: number
   functionUsesRemaining: number
+  hasMovedThisTurn: boolean  // このターンに移動済みか (各ターン1回だけ)
 }
 
 // --- ゲーム ---
@@ -79,12 +84,15 @@ export type GamePhase =
   | 'result'
   | 'gameover'
 
-// --- ゲーム設定 (サーバー権威。各種サイズはピクセル単位) ---
+// --- ゲーム設定 (サーバー権威。各種サイズはピクセル単位 + 数学座標範囲) ---
 export interface GameSettings {
   bulletRadius: number   // px (当たり判定の半径)
   playerRadius: number   // px (当たり判定の半径)
   moveDistance: number   // px (1ターンあたりの移動距離)
   wallReflectionBonus: number // 壁反射時に弾の数値に加算
+  mathXMax: number       // 数学座標の x 右端 (左端は -mathXMax)
+  mathYMax: number       // 数学座標の y 上端 (下端は -mathYMax、アスペクト比から導出)
+  pixelsPerUnit: number  // 1 数学単位あたりのピクセル数
 }
 
 export interface GameState {
@@ -107,6 +115,7 @@ export interface SanitizedPlayerState {
   handCount: number
   deckRemaining: number
   functionUsesRemaining: number
+  hasMovedThisTurn: boolean
 }
 
 // --- クライアントに送るゲーム状態 ---

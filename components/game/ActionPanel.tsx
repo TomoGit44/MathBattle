@@ -6,16 +6,17 @@ import { HandDisplay } from './HandDisplay'
 import { FunctionPreview, type FunctionSequenceEntry } from './FunctionPreview'
 import { validateCalculation, calcErrorMessage } from '@/lib/calc-engine'
 
-type ActionMode = null | 'move' | 'calculate' | 'attack' | 'function'
+type ActionMode = null | 'calculate' | 'attack' | 'function'
 
 interface ActionPanelProps {
   hand: HandItem[]
   onSubmit: (action: Action) => void
   disabled: boolean
   functionUsesRemaining: number
+  hasMoved: boolean
 }
 
-export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }: ActionPanelProps) => {
+export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, hasMoved }: ActionPanelProps) => {
   const [mode, setMode] = useState<ActionMode>(null)
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
   const [submitted, setSubmitted] = useState(false)
@@ -62,6 +63,12 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
   const submit = useCallback((action: Action) => {
     onSubmit(action)
     setSubmitted(true)
+    reset()
+  }, [onSubmit, reset])
+
+  // 移動 / skip_move は即時処理 (ターン終了しない)
+  const submitImmediate = useCallback((action: Action) => {
+    onSubmit(action)
     reset()
   }, [onSubmit, reset])
 
@@ -159,72 +166,78 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
         />
       )}
 
-      {/* モード選択 */}
-      {mode === null && (
-        <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
-          <button
-            onClick={() => setMode('move')}
-            className="px-4 py-3 sm:py-2 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded-lg font-bold transition-colors touch-manipulation"
-          >
-            移動
-          </button>
-          <button
-            onClick={() => setMode('calculate')}
-            className="px-4 py-3 sm:py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 rounded-lg font-bold transition-colors touch-manipulation"
-          >
-            計算
-          </button>
-          <button
-            onClick={() => setMode('attack')}
-            className="px-4 py-3 sm:py-2 bg-red-700 active:bg-red-800 hover:bg-red-600 rounded-lg font-bold transition-colors touch-manipulation"
-          >
-            攻撃
-          </button>
-          <button
-            onClick={() => setMode('function')}
-            disabled={functionUsesRemaining <= 0}
-            className="px-4 py-3 sm:py-2 bg-emerald-700 active:bg-emerald-800 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
-          >
-            関数 ({functionUsesRemaining})
-          </button>
+      {/* 第1段階: 移動フェーズ (必須・毎ターン1回) */}
+      {!hasMoved && mode === null && (
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-sm text-cyan-300 font-bold">ステップ 1: 移動</div>
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => submitImmediate({ type: 'move', direction: 'up' })}
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+            >
+              ↑
+            </button>
+            <div className="flex gap-1">
+              <button
+                onClick={() => submitImmediate({ type: 'move', direction: 'left' })}
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              >
+                ←
+              </button>
+              <button
+                onClick={() => submitImmediate({ type: 'skip_move' })}
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-gray-600 active:bg-gray-700 hover:bg-gray-500 rounded text-[10px] leading-tight touch-manipulation"
+              >
+                移動<br />しない
+              </button>
+              <button
+                onClick={() => submitImmediate({ type: 'move', direction: 'right' })}
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              >
+                →
+              </button>
+            </div>
+            <button
+              onClick={() => submitImmediate({ type: 'move', direction: 'down' })}
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+            >
+              ↓
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 移動方向 */}
-      {mode === 'move' && (
-        <div className="flex flex-col items-center gap-1">
-          <button
-            onClick={() => submit({ type: 'move', direction: 'up' })}
-            className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
-          >
-            ↑
-          </button>
-          <div className="flex gap-1">
+      {/* 第2段階: メインアクション選択 */}
+      {hasMoved && mode === null && (
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-sm text-yellow-300 font-bold">ステップ 2: アクション</div>
+          <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
             <button
-              onClick={() => submit({ type: 'move', direction: 'left' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              onClick={() => setMode('calculate')}
+              className="px-4 py-3 sm:py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 rounded-lg font-bold transition-colors touch-manipulation"
             >
-              ←
+              計算
             </button>
             <button
-              onClick={reset}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-gray-700 active:bg-gray-800 hover:bg-gray-600 rounded text-sm touch-manipulation"
+              onClick={() => setMode('attack')}
+              className="px-4 py-3 sm:py-2 bg-red-700 active:bg-red-800 hover:bg-red-600 rounded-lg font-bold transition-colors touch-manipulation"
             >
-              戻
+              攻撃
             </button>
             <button
-              onClick={() => submit({ type: 'move', direction: 'right' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              onClick={() => setMode('function')}
+              disabled={functionUsesRemaining <= 0}
+              className="px-4 py-3 sm:py-2 bg-emerald-700 active:bg-emerald-800 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
             >
-              →
+              関数 ({functionUsesRemaining})
+            </button>
+            <button
+              onClick={() => submit({ type: 'skip' })}
+              className="px-4 py-3 sm:py-2 bg-gray-600 active:bg-gray-700 hover:bg-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
+            >
+              スキップ
             </button>
           </div>
-          <button
-            onClick={() => submit({ type: 'move', direction: 'down' })}
-            className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
-          >
-            ↓
-          </button>
         </div>
       )}
 

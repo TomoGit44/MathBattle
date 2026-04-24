@@ -1,32 +1,34 @@
-import type { FunctionCurve } from '@/lib/types'
+import type { FunctionCurve, GameSettings } from '@/lib/types'
 import { evaluateFunction } from '@/lib/func-engine'
-import { FIELD_WIDTH, FIELD_HEIGHT, MATH_X_MIN, MATH_X_MAX, MATH_Y_MIN, MATH_Y_MAX, CURVE_SAMPLE_COUNT } from '@/lib/constants'
+import { FIELD_WIDTH, FIELD_HEIGHT, CURVE_SAMPLE_COUNT } from '@/lib/constants'
 
 interface CurveDisplayProps {
   curve: FunctionCurve
   isOwn: boolean
+  settings: GameSettings
 }
 
-export const CurveDisplay = ({ curve, isOwn }: CurveDisplayProps) => {
+export const CurveDisplay = ({ curve, isOwn, settings }: CurveDisplayProps) => {
   const color = isOwn ? '#3b82f6' : '#ef4444'
+  const { mathXMax, mathYMax } = settings
 
   // 曲線をサンプリングしてSVGパスを生成
-  const step = (MATH_X_MAX - MATH_X_MIN) / CURVE_SAMPLE_COUNT
+  const step = (2 * mathXMax) / CURVE_SAMPLE_COUNT
   const segments: string[] = []
   let inPath = false
 
   for (let i = 0; i <= CURVE_SAMPLE_COUNT; i++) {
-    const mathX = MATH_X_MIN + step * i
+    const mathX = -mathXMax + step * i
     const mathY = evaluateFunction(curve.expression, mathX)
 
-    if (mathY === null || mathY < MATH_Y_MIN || mathY > MATH_Y_MAX) {
+    if (mathY === null || mathY < -mathYMax || mathY > mathYMax) {
       inPath = false
       continue
     }
 
-    // 数学座標 → SVGパーセント座標
-    const px = ((mathX - MATH_X_MIN) / (MATH_X_MAX - MATH_X_MIN)) * FIELD_WIDTH
-    const py = ((MATH_Y_MAX - mathY) / (MATH_Y_MAX - MATH_Y_MIN)) * FIELD_HEIGHT
+    // 数学座標 → SVG viewBox 座標
+    const px = ((mathX + mathXMax) / (2 * mathXMax)) * FIELD_WIDTH
+    const py = ((mathYMax - mathY) / (2 * mathYMax)) * FIELD_HEIGHT
 
     if (!inPath) {
       segments.push(`M ${px} ${py}`)
@@ -42,8 +44,8 @@ export const CurveDisplay = ({ curve, isOwn }: CurveDisplayProps) => {
   // ラベル表示位置: x=0 での y 値
   const labelY = evaluateFunction(curve.expression, 0)
   const labelPx = FIELD_WIDTH / 2
-  const labelPy = labelY !== null && labelY >= MATH_Y_MIN && labelY <= MATH_Y_MAX
-    ? ((MATH_Y_MAX - labelY) / (MATH_Y_MAX - MATH_Y_MIN)) * FIELD_HEIGHT
+  const labelPy = labelY !== null && labelY >= -mathYMax && labelY <= mathYMax
+    ? ((mathYMax - labelY) / (2 * mathYMax)) * FIELD_HEIGHT
     : 20
 
   return (
@@ -61,7 +63,6 @@ export const CurveDisplay = ({ curve, isOwn }: CurveDisplayProps) => {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {/* 関数ラベル */}
       <text
         x={labelPx + 5}
         y={Math.max(12, Math.min(FIELD_HEIGHT - 4, labelPy - 8))}

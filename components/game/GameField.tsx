@@ -108,26 +108,35 @@ export const GameField = ({ gameState }: GameFieldProps) => {
         <div className="absolute left-0 right-0 h-px bg-white/20" style={{ top: '50%' }} />
         {/* y軸 (x=0 → left:50%) */}
         <div className="absolute top-0 bottom-0 w-px bg-white/20" style={{ left: '50%' }} />
-        {/* x軸の目盛りラベル */}
-        {[-10, -5, 0, 5, 10].map((v) => (
-          <span
-            key={`x-${v}`}
-            className="absolute text-[8px] text-white/30 -translate-x-1/2"
-            style={{ left: `${((v + 10) / 20) * 100}%`, top: '51%' }}
-          >
-            {v}
-          </span>
-        ))}
-        {/* y軸の目盛りラベル */}
-        {[-5, 0, 5].map((v) => (
-          <span
-            key={`y-${v}`}
-            className="absolute text-[8px] text-white/30 -translate-y-1/2"
-            style={{ left: '51%', top: `${((5 - v) / 10) * 100}%` }}
-          >
-            {v !== 0 ? v : ''}
-          </span>
-        ))}
+        {/* x軸の目盛りラベル: -mathXMax, -mathXMax/2, 0, mathXMax/2, mathXMax */}
+        {(() => {
+          const { mathXMax, mathYMax } = settings
+          const xTicks = [-mathXMax, -mathXMax / 2, 0, mathXMax / 2, mathXMax]
+          const yTicks = [-mathYMax, 0, mathYMax]
+          const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
+          return (
+            <>
+              {xTicks.map((v, i) => (
+                <span
+                  key={`x-${i}`}
+                  className="absolute text-[8px] text-white/30 -translate-x-1/2"
+                  style={{ left: `${((v + mathXMax) / (2 * mathXMax)) * 100}%`, top: '51%' }}
+                >
+                  {fmt(v)}
+                </span>
+              ))}
+              {yTicks.map((v, i) => (
+                <span
+                  key={`y-${i}`}
+                  className="absolute text-[8px] text-white/30 -translate-y-1/2"
+                  style={{ left: '51%', top: `${((mathYMax - v) / (2 * mathYMax)) * 100}%` }}
+                >
+                  {v !== 0 ? fmt(v) : ''}
+                </span>
+              ))}
+            </>
+          )
+        })()}
       </div>
 
       {/* 関数カーブ */}
@@ -136,6 +145,7 @@ export const GameField = ({ gameState }: GameFieldProps) => {
           key={curve.id}
           curve={curve}
           isOwn={curve.owner === me.id}
+          settings={settings}
         />
       ))}
 

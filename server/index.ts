@@ -8,6 +8,8 @@ import {
   executeDraw,
   resolveActions,
   sanitizeStateForPlayer,
+  applyImmediateMove,
+  markMoveSkipped,
 } from '../lib/game-logic'
 import { createDefaultDeck } from '../lib/deck'
 import { checkGameOver } from '../lib/damage'
@@ -93,7 +95,7 @@ const startActionTimer = (room: Room) => {
   room.actionTimer = setTimeout(() => {
     for (const id of room.playerOrder) {
       if (!room.pendingActions.has(id)) {
-        room.pendingActions.set(id, { type: 'move', direction: 'up' })
+        room.pendingActions.set(id, { type: 'skip' })
       }
     }
     resolveRound(room)
@@ -169,6 +171,60 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
   }
 
   if (!room.playerOrder.includes(connId)) return
+
+  // 移動アクションは即時処理 (1ターン1回)
+  if (action.type === 'move') {
+    const player = room.gameState.players[connId]
+    if (!player) return
+    if (player.hasMovedThisTurn) {
+      send(ws, { type: 'error', message: '今ターンはすでに移動済みです' })
+      return
+    }
+    const next = applyImmediateMove(room.gameState, connId, action.direction)
+    if (!next) {
+      send(ws, { type: 'error', message: '移動できません' })
+      return
+    }
+    room.gameState = next
+
+    // 両プレイヤーに即時ブロードキャスト
+    for (const [otherId, pc] of room.players) {
+      send(pc.ws, {
+        type: 'gameState',
+        state: sanitizeStateForPlayer(room.gameState, otherId),
+      })
+    }
+    return
+  }
+
+  // 移動フェーズでの「移動しない」: hasMovedThisTurn だけ立てる即時処理
+  if (action.type === 'skip_move') {
+    const player = room.gameState.players[connId]
+    if (!player) return
+    if (player.hasMovedThisTurn) {
+      send(ws, { type: 'error', message: '今ターンはすでに移動処理済みです' })
+      return
+    }
+    const next = markMoveSkipped(room.gameState, connId)
+    if (!next) return
+    room.gameState = next
+    for (const [otherId, pc] of room.players) {
+      send(pc.ws, {
+        type: 'gameState',
+        state: sanitizeStateForPlayer(room.gameState, otherId),
+      })
+    }
+    return
+  }
+
+  // メインアクションの前段として、必ず移動フェーズが完了している必要がある
+  {
+    const player = room.gameState.players[connId]
+    if (player && !player.hasMovedThisTurn) {
+      send(ws, { type: 'error', message: '先に移動フェーズを完了してください (移動 or 移動しない)' })
+      return
+    }
+  }
 
   // 計算アクションは即時処理 (1ターンに何度でも可能)
   if (action.type === 'calculate') {
