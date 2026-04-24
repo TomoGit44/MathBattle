@@ -1,3 +1,7 @@
 {
-  "actionTimeoutSec": 0
+  "actionTimeoutSec": 0,
+  "bulletDiameter": 1,
+  "playerDiameter": 2,
+  "moveDistance": 2,
+  "wallReflectionBonus": 0
 }

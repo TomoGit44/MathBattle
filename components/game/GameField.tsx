@@ -75,10 +75,11 @@ export const GameField = ({ gameState }: GameFieldProps) => {
   }, [phase, bullets])
 
   // アクションフェーズ中に全tick軌跡を予測
+  const settings = gameState.settings
   const trajectories = useMemo(() => {
     if (phase !== 'action' || isAnimating || displayBullets.length === 0) return []
-    return predictTrajectories(displayBullets, fieldSize)
-  }, [phase, isAnimating, displayBullets, fieldSize])
+    return predictTrajectories(displayBullets, fieldSize, settings)
+  }, [phase, isAnimating, displayBullets, fieldSize, settings])
 
   return (
     <div className="relative w-full aspect-[2/1] bg-gray-800 border-2 border-gray-600 rounded-lg overflow-hidden">
@@ -91,11 +92,12 @@ export const GameField = ({ gameState }: GameFieldProps) => {
             style={{ left: `${(i + 1) * 10}%` }}
           />
         ))}
-        {Array.from({ length: 4 }, (_, i) => (
+        {/* 横線: y = 4, 2, 0, -2, -4 (top: 10%, 30%, 50%, 70%, 90%) */}
+        {Array.from({ length: 5 }, (_, i) => (
           <div
             key={`h-${i}`}
             className="absolute left-0 right-0 h-px bg-gray-400"
-            style={{ top: `${(i + 1) * 20}%` }}
+            style={{ top: `${10 + i * 20}%` }}
           />
         ))}
       </div>
@@ -143,12 +145,28 @@ export const GameField = ({ gameState }: GameFieldProps) => {
           key={`traj-${traj.bulletId}`}
           trajectory={traj}
           isOwn={traj.owner === me.id}
+          bulletRadius={settings.bulletRadius}
+          fieldSize={fieldSize}
         />
       ))}
 
       {/* プレイヤー */}
-      <Player position={me.position} facing={me.facing} isMe animating={phase === 'result' || phase === 'resolving'} />
-      <Player position={opponent.position} facing={opponent.facing} isMe={false} animating={phase === 'result' || phase === 'resolving'} />
+      <Player
+        position={me.position}
+        facing={me.facing}
+        isMe
+        animating={phase === 'result' || phase === 'resolving'}
+        playerRadius={settings.playerRadius}
+        fieldSize={fieldSize}
+      />
+      <Player
+        position={opponent.position}
+        facing={opponent.facing}
+        isMe={false}
+        animating={phase === 'result' || phase === 'resolving'}
+        playerRadius={settings.playerRadius}
+        fieldSize={fieldSize}
+      />
 
       {/* 弾 */}
       {displayBullets.map((bullet) => (
@@ -156,6 +174,8 @@ export const GameField = ({ gameState }: GameFieldProps) => {
           key={bullet.id}
           bullet={bullet}
           isOwn={bullet.owner === me.id}
+          bulletRadius={settings.bulletRadius}
+          fieldSize={fieldSize}
         />
       ))}
 

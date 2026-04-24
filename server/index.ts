@@ -11,13 +11,14 @@ import {
 } from '../lib/game-logic'
 import { createDefaultDeck } from '../lib/deck'
 import { checkGameOver } from '../lib/damage'
-import { applyCalculation } from '../lib/calc-engine'
+import { tryApplyCalculation, calcErrorMessage } from '../lib/calc-engine'
 import { isPrimeBullet } from '../lib/prime'
 import { TURN_DELAY_MS } from '../lib/constants'
-import { loadConfig, isUnlimited } from '../lib/config'
+import { loadConfig, isUnlimited, toGameSettings } from '../lib/config'
 import type { TurnResult } from '../lib/types'
 
 const CONFIG = loadConfig()
+const GAME_SETTINGS = toGameSettings(CONFIG)
 
 interface PlayerConnection {
   ws: WebSocket
@@ -39,7 +40,7 @@ const rooms = new Map<string, Room>()
 
 const createRoom = (roomId: string): Room => ({
   id: roomId,
-  gameState: initializeGameState(),
+  gameState: initializeGameState(GAME_SETTINGS),
   decks: new Map(),
   pendingActions: new Map(),
   playerOrder: [],
@@ -174,11 +175,18 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     const player = room.gameState.players[connId]
     if (!player) return
 
-    const newHand = applyCalculation(player.hand, action.cardIndices)
-    if (!newHand) {
-      send(ws, { type: 'error', message: '計算に失敗しました' })
+    // cardIndices の形を防御的に検証
+    if (!Array.isArray(action.cardIndices)) {
+      send(ws, { type: 'error', message: '計算リクエストが不正です' })
       return
     }
+
+    const result = tryApplyCalculation(player.hand, action.cardIndices)
+    if (!result.ok) {
+      send(ws, { type: 'error', message: calcErrorMessage(result.reason) })
+      return
+    }
+    const newHand = result.newHand
 
     room.gameState = {
       ...room.gameState,
@@ -304,13 +312,23 @@ wss.on('connection', (ws, req) => {
       return
     }
 
-    switch (parsed.type) {
-      case 'join':
-        handleJoin(room, ws, connId, parsed.name)
-        break
-      case 'action':
-        handleAction(room, ws, connId, parsed.action)
-        break
+    // ハンドラ内で例外が出てもサーバーがクラッシュしないように包む
+    try {
+      switch (parsed.type) {
+        case 'join':
+          if (typeof parsed.name === 'string') {
+            handleJoin(room, ws, connId, parsed.name)
+          }
+          break
+        case 'action':
+          if (parsed.action && typeof parsed.action === 'object') {
+            handleAction(room, ws, connId, parsed.action)
+          }
+          break
+      }
+    } catch (err) {
+      console.error(`[${roomId}] handler error for ${connId}:`, err)
+      send(ws, { type: 'error', message: 'サーバー内部エラー' })
     }
   })
 
@@ -318,6 +336,14 @@ wss.on('connection', (ws, req) => {
     console.log(`[${roomId}] Player disconnected: ${connId}`)
     handleDisconnect(room, connId)
   })
+})
+
+// 最終防衛線: 想定外の例外でもプロセスを落とさない
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] uncaughtException:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal] unhandledRejection:', reason)
 })
 
 httpServer.listen(PORT, () => {

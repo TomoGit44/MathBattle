@@ -1,17 +1,18 @@
 import type { Bullet } from '@/lib/types'
-import { FIELD_WIDTH, FIELD_HEIGHT, BULLET_SIZE } from '@/lib/constants'
 
 interface BulletDisplayProps {
   bullet: Bullet
   isOwn: boolean
+  bulletRadius: number
+  fieldSize: { width: number; height: number }
 }
 
-export const BulletDisplay = ({ bullet, isOwn }: BulletDisplayProps) => {
-  const left = (bullet.position.x / FIELD_WIDTH) * 100
-  const top = (bullet.position.y / FIELD_HEIGHT) * 100
-  // 当たり判定 (円・半径 BULLET_SIZE) と一致させる
-  const widthPct = ((BULLET_SIZE * 2) / FIELD_WIDTH) * 100
-  const heightPct = ((BULLET_SIZE * 2) / FIELD_HEIGHT) * 100
+export const BulletDisplay = ({ bullet, isOwn, bulletRadius, fieldSize }: BulletDisplayProps) => {
+  const left = (bullet.position.x / fieldSize.width) * 100
+  const top = (bullet.position.y / fieldSize.height) * 100
+  // 当たり判定 (円・半径 bulletRadius) と一致させる
+  const widthPct = ((bulletRadius * 2) / fieldSize.width) * 100
+  const heightPct = ((bulletRadius * 2) / fieldSize.height) * 100
 
   const color = isOwn
     ? 'bg-blue-900 border-blue-400 text-blue-300'

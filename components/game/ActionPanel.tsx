@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import type { Action, HandItem } from '@/lib/types'
 import { HandDisplay } from './HandDisplay'
 import { FunctionPreview, type FunctionSequenceEntry } from './FunctionPreview'
+import { validateCalculation, calcErrorMessage } from '@/lib/calc-engine'
 
 type ActionMode = null | 'move' | 'calculate' | 'attack' | 'function'
 
@@ -66,10 +67,17 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
 
   // 計算は即時処理。submitted=true にせず、選択だけクリアして連続入力を許可
   const submitCalculate = useCallback(() => {
-    if (selectedIndices.size < 3) return
-    onSubmit({ type: 'calculate', cardIndices: Array.from(selectedIndices) })
+    const indices = Array.from(selectedIndices)
+    if (validateCalculation(hand, indices) !== null) return
+    onSubmit({ type: 'calculate', cardIndices: indices })
     setSelectedIndices(new Set())
-  }, [onSubmit, selectedIndices])
+  }, [onSubmit, selectedIndices, hand])
+
+  // 現在の選択状態に対する計算バリデーション結果 (UI制御用)
+  const calcValidationError =
+    mode === 'calculate' && selectedIndices.size > 0
+      ? validateCalculation(hand, Array.from(selectedIndices))
+      : null
 
   // 関数式の送信: functionSequenceからcardIndicesとxPositionsに変換
   const submitFunction = useCallback(() => {
@@ -223,21 +231,29 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
       {/* 計算 (1ターンに何度でも実行可能) */}
       {mode === 'calculate' && (
         <div className="flex flex-col gap-2 items-center">
-          <div className="flex gap-2 justify-center items-center">
+          <div className="flex gap-2 justify-center items-center flex-wrap">
             <span className="text-sm text-gray-400">カードを選択して計算</span>
             <button
               onClick={submitCalculate}
-              disabled={selectedIndices.size < 3}
-              className="px-4 py-2 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors"
+              disabled={calcValidationError !== null || selectedIndices.size === 0}
+              className="px-4 py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
             >
               計算実行
             </button>
-            <button onClick={reset} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
+            <button
+              onClick={reset}
+              className="px-3 py-2 bg-gray-700 active:bg-gray-800 hover:bg-gray-600 rounded-lg text-sm touch-manipulation"
+            >
               他のアクションへ
             </button>
           </div>
-          <p className="text-xs text-gray-500">
-            計算は1ターンに何度でも実行できます。手札が更新されたら続けて選択可能。
+          {calcValidationError && (
+            <p className="text-xs text-amber-400 bg-amber-950/40 border border-amber-700/50 rounded px-2 py-1">
+              ⚠ {calcErrorMessage(calcValidationError)}
+            </p>
+          )}
+          <p className="text-xs text-gray-500 text-center">
+            選択した順番で計算されます (例: 3 → + → 7)。1ターンに何度でも実行可能。
           </p>
         </div>
       )}

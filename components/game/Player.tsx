@@ -1,19 +1,27 @@
 import type { Position } from '@/lib/types'
-import { FIELD_WIDTH, FIELD_HEIGHT, PLAYER_SIZE } from '@/lib/constants'
 
 interface PlayerProps {
   position: Position
   facing: 'left' | 'right'
   isMe: boolean
   animating?: boolean
+  playerRadius: number
+  fieldSize: { width: number; height: number }
 }
 
-export const Player = ({ position, facing, isMe, animating = false }: PlayerProps) => {
-  const left = (position.x / FIELD_WIDTH) * 100
-  const top = (position.y / FIELD_HEIGHT) * 100
-  // 当たり判定 (円・半径 PLAYER_SIZE) と一致させる
-  const widthPct = ((PLAYER_SIZE * 2) / FIELD_WIDTH) * 100
-  const heightPct = ((PLAYER_SIZE * 2) / FIELD_HEIGHT) * 100
+export const Player = ({
+  position,
+  facing,
+  isMe,
+  animating = false,
+  playerRadius,
+  fieldSize,
+}: PlayerProps) => {
+  const left = (position.x / fieldSize.width) * 100
+  const top = (position.y / fieldSize.height) * 100
+  // 当たり判定 (円・半径 playerRadius) と一致させる
+  const widthPct = ((playerRadius * 2) / fieldSize.width) * 100
+  const heightPct = ((playerRadius * 2) / fieldSize.height) * 100
   const color = isMe ? 'bg-blue-500 border-blue-300' : 'bg-red-500 border-red-300'
 
   // animating 中は3秒かけてスムーズ移動、通常は即座に移動

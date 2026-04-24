@@ -1,4 +1,4 @@
-import type { Bullet, Position } from './types'
+import type { Bullet, Position, GameSettings } from './types'
 import { tickBullets, checkBulletCollisions } from './physics'
 import { PHYSICS_TICKS_PER_TURN } from './constants'
 
@@ -22,7 +22,8 @@ export interface BulletTrajectory {
  */
 export const predictTrajectories = (
   bullets: Bullet[],
-  fieldSize: { width: number; height: number }
+  fieldSize: { width: number; height: number },
+  settings: GameSettings
 ): BulletTrajectory[] => {
   if (bullets.length === 0) return []
 
@@ -40,8 +41,11 @@ export const predictTrajectories = (
   }))
 
   for (let tick = 1; tick <= PHYSICS_TICKS_PER_TURN; tick++) {
-    simBullets = tickBullets(simBullets, fieldSize)
-    simBullets = checkBulletCollisions(simBullets)
+    const prevPositions = new Map<string, Position>(
+      simBullets.map((b) => [b.id, { ...b.position }])
+    )
+    simBullets = tickBullets(simBullets, fieldSize, settings)
+    simBullets = checkBulletCollisions(simBullets, prevPositions, settings)
 
     // 生き残った弾の位置を記録
     for (const b of simBullets) {

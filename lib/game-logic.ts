@@ -9,12 +9,13 @@ import type {
   TurnResult,
   BulletSnapshot,
   Bullet,
+  GameSettings,
+  Position,
 } from './types'
 import {
   FIELD_WIDTH,
   FIELD_HEIGHT,
   INITIAL_HP,
-  MOVE_DISTANCE,
   DRAW_COUNT,
   MAX_HAND_SIZE,
   PHYSICS_TICKS_PER_TURN,
@@ -24,6 +25,10 @@ import {
   MAX_FUNCTION_USES,
   FUNCTION_DAMAGE,
   NUMBER_REPLENISH_THRESHOLD,
+  BULLET_SIZE,
+  PLAYER_SIZE,
+  MOVE_DISTANCE,
+  WALL_REFLECTION_BONUS,
 } from './constants'
 import { shuffleDeck, drawCards, createDefaultDeck } from './deck'
 import { applyCalculation } from './calc-engine'
@@ -33,13 +38,22 @@ import { applyDamage, checkGameOver } from './damage'
 import { checkCurveDamages } from './curve-collision'
 import { isPrimeBullet } from './prime'
 
-export const initializeGameState = (): GameState => ({
+// 設定ファイルが無い場合に使うデフォルト設定 (既存の constants と同等)
+const DEFAULT_SETTINGS: GameSettings = {
+  bulletRadius: BULLET_SIZE,
+  playerRadius: PLAYER_SIZE,
+  moveDistance: MOVE_DISTANCE,
+  wallReflectionBonus: WALL_REFLECTION_BONUS,
+}
+
+export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({
   phase: 'waiting',
   turn: 0,
   players: {},
   bullets: [],
   curves: [],
   fieldSize: { width: FIELD_WIDTH, height: FIELD_HEIGHT },
+  settings,
 })
 
 export const addPlayer = (
@@ -147,10 +161,11 @@ export const executeDraw = (
 const clampPosition = (
   x: number,
   y: number,
-  fieldSize: { width: number; height: number }
+  fieldSize: { width: number; height: number },
+  playerRadius: number
 ) => ({
-  x: Math.max(24, Math.min(fieldSize.width - 24, x)),
-  y: Math.max(24, Math.min(fieldSize.height - 24, y)),
+  x: Math.max(playerRadius, Math.min(fieldSize.width - playerRadius, x)),
+  y: Math.max(playerRadius, Math.min(fieldSize.height - playerRadius, y)),
 })
 
 const describeAction = (action: Action, player: PlayerState): string => {
@@ -192,13 +207,14 @@ export const resolveActions = (
     switch (action.type) {
       case 'move': {
         let { x, y } = player.position
+        const dist = state.settings.moveDistance
         switch (action.direction) {
-          case 'up': y -= MOVE_DISTANCE; break
-          case 'down': y += MOVE_DISTANCE; break
-          case 'left': x -= MOVE_DISTANCE; break
-          case 'right': x += MOVE_DISTANCE; break
+          case 'up': y -= dist; break
+          case 'down': y += dist; break
+          case 'left': x -= dist; break
+          case 'right': x += dist; break
         }
-        const clamped = clampPosition(x, y, state.fieldSize)
+        const clamped = clampPosition(x, y, state.fieldSize, state.settings.playerRadius)
         players[id] = { ...player, position: clamped }
         break
       }
@@ -267,9 +283,13 @@ export const resolveActions = (
   const totalDamages: Record<string, number> = {}
 
   for (let tick = 0; tick < PHYSICS_TICKS_PER_TURN; tick++) {
-    bullets = tickBullets(bullets, state.fieldSize)
-    bullets = checkBulletCollisions(bullets)
-    const { bullets: remaining, damages } = checkPlayerHits(bullets, players)
+    // tick前の位置を保存 (連続衝突判定用)
+    const prevPositions = new Map<string, Position>(
+      bullets.map((b) => [b.id, { ...b.position }])
+    )
+    bullets = tickBullets(bullets, state.fieldSize, state.settings)
+    bullets = checkBulletCollisions(bullets, prevPositions, state.settings)
+    const { bullets: remaining, damages } = checkPlayerHits(bullets, prevPositions, players, state.settings)
     bullets = remaining
 
     // 各tickのスナップショットを保存
@@ -349,6 +369,7 @@ export const sanitizeStateForPlayer = (
     bullets: state.bullets,
     curves: state.curves,
     fieldSize: state.fieldSize,
+    settings: state.settings,
     turnResult,
   }
 }

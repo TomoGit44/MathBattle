@@ -79,6 +79,14 @@ export type GamePhase =
   | 'result'
   | 'gameover'
 
+// --- ゲーム設定 (サーバー権威。各種サイズはピクセル単位) ---
+export interface GameSettings {
+  bulletRadius: number   // px (当たり判定の半径)
+  playerRadius: number   // px (当たり判定の半径)
+  moveDistance: number   // px (1ターンあたりの移動距離)
+  wallReflectionBonus: number // 壁反射時に弾の数値に加算
+}
+
 export interface GameState {
   phase: GamePhase
   turn: number
@@ -86,6 +94,7 @@ export interface GameState {
   bullets: Bullet[]
   curves: FunctionCurve[]
   fieldSize: { width: number; height: number }
+  settings: GameSettings
 }
 
 // --- サニタイズ済みプレイヤー（相手から見える情報） ---
@@ -109,6 +118,7 @@ export interface ClientGameState {
   bullets: Bullet[]
   curves: FunctionCurve[]
   fieldSize: { width: number; height: number }
+  settings: GameSettings
   turnResult?: TurnResult
 }
 
