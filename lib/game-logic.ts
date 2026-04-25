@@ -29,6 +29,9 @@ import {
   PLAYER_SIZE,
   MOVE_DISTANCE,
   WALL_REFLECTION_BONUS,
+  ITEM_SIZE,
+  ITEM_SPAWN_RATE,
+  MAX_ITEMS,
 } from './constants'
 import { shuffleDeck, drawCards, createDefaultDeck } from './deck'
 import { applyCalculation } from './calc-engine'
@@ -37,6 +40,7 @@ import { createBullet, tickBullets, checkBulletCollisions, checkPlayerHits } fro
 import { applyDamage, checkGameOver } from './damage'
 import { checkCurveDamages } from './curve-collision'
 import { isPrimeBullet } from './prime'
+import { trySpawnItem, checkBulletItemCollisions, applyCurveDamageToItems, type ItemKill } from './items'
 
 // 設定ファイルが無い場合に使うデフォルト設定 (既存の constants と同等)
 // 旧来の mathXMax=10 / mathYMax=5 → pixelsPerUnit=40 相当
@@ -48,6 +52,9 @@ const DEFAULT_SETTINGS: GameSettings = {
   mathXMax: 10,
   mathYMax: 5,
   pixelsPerUnit: 40,
+  itemSize: ITEM_SIZE,
+  itemSpawnRate: ITEM_SPAWN_RATE,
+  maxItems: MAX_ITEMS,
 }
 
 export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({
@@ -56,6 +63,7 @@ export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): 
   players: {},
   bullets: [],
   curves: [],
+  items: [],
   fieldSize: { width: FIELD_WIDTH, height: FIELD_HEIGHT },
   settings,
 })
@@ -157,8 +165,12 @@ export const executeDraw = (
     }
   }
 
+  // ターン開始時にアイテムをランダム生成 (settings.itemSpawnRate, settings.maxItems を使用)
+  const spawned = trySpawnItem(state.items, state.fieldSize, state.settings)
+  const newItems = spawned ? [...state.items, spawned] : state.items
+
   return {
-    state: { ...state, phase: 'action', players: newPlayers },
+    state: { ...state, phase: 'action', players: newPlayers, items: newItems },
     decks: newDecks,
     drawnCards,
   }
@@ -245,8 +257,10 @@ export const resolveActions = (
   let players = { ...state.players }
   let bullets = [...state.bullets]
   let curves = [...state.curves]
+  let items = [...state.items]
   const bulletSnapshots: BulletSnapshot[] = []
-  const turnResult: TurnResult = { actions: {}, damages: {}, bulletEvents: [], bulletSnapshots: [], playerPositions: {}, curveDamages: {}, primeSynthesis: {} }
+  const itemKillsAccum: ItemKill[] = []
+  const turnResult: TurnResult = { actions: {}, damages: {}, bulletEvents: [], bulletSnapshots: [], playerPositions: {}, curveDamages: {}, primeSynthesis: {}, itemKills: [] }
 
   // アクション解決
   for (const [id, action] of Object.entries(actions)) {
@@ -345,6 +359,12 @@ export const resolveActions = (
     const { bullets: remaining, damages } = checkPlayerHits(bullets, prevPositions, players, state.settings)
     bullets = remaining
 
+    // 弾 vs アイテム衝突 (プレイヤーヒット後の生き残り弾で判定)
+    const itemHit = checkBulletItemCollisions(bullets, prevPositions, items, state.settings)
+    bullets = itemHit.bullets
+    items = itemHit.items
+    if (itemHit.kills.length > 0) itemKillsAccum.push(...itemHit.kills)
+
     // 各tickのスナップショットを保存
     bulletSnapshots.push({ bullets: bullets.map((b) => ({ ...b, position: { ...b.position }, velocity: { ...b.velocity } })) })
 
@@ -353,12 +373,37 @@ export const resolveActions = (
     }
   }
 
-  // 曲線ダメージ判定
+  // 曲線ダメージ判定 (プレイヤー)
   const curveDmgs = checkCurveDamages(curves, players, FUNCTION_DAMAGE, state.settings)
   for (const [id, dmg] of Object.entries(curveDmgs)) {
     totalDamages[id] = (totalDamages[id] ?? 0) + dmg
     turnResult.curveDamages[id] = dmg
   }
+
+  // 曲線ダメージ判定 (アイテム)
+  const curveItemRes = applyCurveDamageToItems(curves, items, FUNCTION_DAMAGE, state.settings)
+  items = curveItemRes.items
+  if (curveItemRes.kills.length > 0) itemKillsAccum.push(...curveItemRes.kills)
+
+  // アイテム撃破 → killer に演算子カードを手札追加 (上限超過時はドロップ)
+  const operatorOf = (kind: ItemKill['kind']): '+' | '-' | '×' | '÷' => kind
+  const recordedKills: NonNullable<TurnResult['itemKills']> = []
+  for (const kill of itemKillsAccum) {
+    const killer = players[kill.killerId]
+    if (!killer) {
+      recordedKills.push({ ...kill, awarded: false })
+      continue
+    }
+    if (killer.hand.length >= MAX_HAND_SIZE) {
+      // 手札満杯 → ドロップ
+      recordedKills.push({ ...kill, awarded: false })
+      continue
+    }
+    const newCard: HandItem = { type: 'operator', operator: operatorOf(kill.kind) }
+    players[kill.killerId] = { ...killer, hand: [...killer.hand, newCard] }
+    recordedKills.push({ ...kill, awarded: true })
+  }
+  turnResult.itemKills = recordedKills
 
   // ダメージ適用
   for (const [id, dmg] of Object.entries(totalDamages)) {
@@ -379,6 +424,7 @@ export const resolveActions = (
       players,
       bullets,
       curves,
+      items,
     },
     turnResult,
   }
@@ -423,6 +469,7 @@ export const sanitizeStateForPlayer = (
     opponent,
     bullets: state.bullets,
     curves: state.curves,
+    items: state.items,
     fieldSize: state.fieldSize,
     settings: state.settings,
     turnResult,

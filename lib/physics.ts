@@ -34,7 +34,7 @@ export const createBullet = (
 // A(t) = a0 + t*(a1-a0), B(t) = b0 + t*(b1-b0), t∈[0,1]
 // |A(t)-B(t)|^2 - r^2 が [0,1] で 0 以下になるかを解析的に判定。
 // プレイヤー判定では B が静止なので b1 = b0 を渡す。
-const sweptCirclesOverlap = (
+export const sweptCirclesOverlap = (
   a0: Position,
   a1: Position,
   b0: Position,

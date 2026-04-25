@@ -43,6 +43,15 @@ export const FUNCTION_DAMAGE = 10
 export const CURVE_SAMPLE_COUNT = 200
 export const CURVE_COLLISION_THRESHOLD = 30 // px (PLAYER_SIZE + マージン)
 
+// アイテム
+export const ITEM_SIZE = 40              // px (当たり判定の直径)
+export const ITEM_SPAWN_RATE = 0.5       // 毎ターンの出現確率
+export const MAX_ITEMS = 5               // フィールド上の同時存在上限
+export const ITEM_HP_MIN = 1             // ランダムHPの下限
+export const ITEM_HP_MAX = 50            // ランダムHPの上限
+// 出現範囲 (画面左右中央の ±100px)
+export const ITEM_SPAWN_X_HALF_WIDTH = 100
+
 // 数学座標系
 export const MATH_X_MIN = -10
 export const MATH_X_MAX = 10

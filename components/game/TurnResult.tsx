@@ -6,11 +6,13 @@ interface TurnResultProps {
 
 export const TurnResult = ({ turnResult }: TurnResultProps) => {
   const primeEntries = Object.entries(turnResult.primeSynthesis ?? {})
+  const itemKills = turnResult.itemKills ?? []
   const hasContent =
     Object.values(turnResult.actions).length > 0 ||
     Object.entries(turnResult.damages).length > 0 ||
     Object.entries(turnResult.curveDamages).length > 0 ||
-    turnResult.bulletEvents.length > 0
+    turnResult.bulletEvents.length > 0 ||
+    itemKills.length > 0
 
   return (
     <>
@@ -31,6 +33,12 @@ export const TurnResult = ({ turnResult }: TurnResultProps) => {
       ))}
       {turnResult.bulletEvents.map((event, i) => (
         <div key={i} className="text-yellow-400">{event}</div>
+      ))}
+      {itemKills.map((k) => (
+        <div key={k.itemId} className="text-amber-300">
+          🎁 アイテム [{k.kind}] を撃破!{' '}
+          {k.awarded ? '→ 獲得 (手札に追加)' : '→ 手札満杯のためドロップ'}
+        </div>
       ))}
     </div>
     )}

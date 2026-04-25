@@ -8,13 +8,14 @@ import { Player } from './Player'
 import { BulletDisplay } from './BulletDisplay'
 import { TrajectoryTrail } from './TrajectoryTrail'
 import { CurveDisplay } from './CurveDisplay'
+import { ItemDisplay } from './ItemDisplay'
 
 interface GameFieldProps {
   gameState: ClientGameState
 }
 
 export const GameField = ({ gameState }: GameFieldProps) => {
-  const { me, opponent, bullets, curves, turnResult, fieldSize } = gameState
+  const { me, opponent, bullets, curves, items, turnResult, fieldSize } = gameState
   const phase = gameState.phase
 
   // アニメーション用: 現在表示中の弾一覧
@@ -147,6 +148,11 @@ export const GameField = ({ gameState }: GameFieldProps) => {
           isOwn={curve.owner === me.id}
           settings={settings}
         />
+      ))}
+
+      {/* フィールド上のアイテム */}
+      {items.map((item) => (
+        <ItemDisplay key={item.id} item={item} fieldSize={fieldSize} />
       ))}
 
       {/* 軌跡プレビュー (actionフェーズのみ) */}

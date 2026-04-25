@@ -4,5 +4,8 @@
   "playerDiameter": 80,
   "moveDistance": 80,
   "wallReflectionBonus": 0,
-  "mathXMax": 2
+  "mathXMax": 2,
+  "itemSize": 40,
+  "itemSpawnRate": 0.5,
+  "maxItems": 5
 }

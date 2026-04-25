@@ -16,7 +16,7 @@
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { FIELD_WIDTH, FIELD_HEIGHT } from './constants'
+import { FIELD_WIDTH, FIELD_HEIGHT, ITEM_SIZE, ITEM_SPAWN_RATE, MAX_ITEMS } from './constants'
 import type { GameSettings } from './types'
 
 export type { GameSettings }
@@ -28,6 +28,9 @@ export interface GameConfig {
   moveDistance: number
   wallReflectionBonus: number
   mathXMax: number
+  itemSize: number          // px (アイテムの当たり判定の直径)
+  itemSpawnRate: number     // 0.0〜1.0
+  maxItems: number          // フィールド上の同時存在上限
 }
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -37,6 +40,9 @@ const DEFAULT_CONFIG: GameConfig = {
   moveDistance: 40,    // px
   wallReflectionBonus: 3,
   mathXMax: 10,
+  itemSize: ITEM_SIZE,
+  itemSpawnRate: ITEM_SPAWN_RATE,
+  maxItems: MAX_ITEMS,
 }
 
 const CONFIG_PATH = resolve(process.cwd(), 'game-config.json')
@@ -70,6 +76,20 @@ const validate = (raw: unknown): GameConfig => {
   if (isPositiveNumber(obj.mathXMax)) {
     cfg.mathXMax = obj.mathXMax
   }
+  if (isPositiveNumber(obj.itemSize)) {
+    cfg.itemSize = obj.itemSize
+  }
+  if (typeof obj.itemSpawnRate === 'number' && Number.isFinite(obj.itemSpawnRate)) {
+    cfg.itemSpawnRate = Math.max(0, Math.min(1, obj.itemSpawnRate))
+  }
+  if (
+    typeof obj.maxItems === 'number' &&
+    Number.isFinite(obj.maxItems) &&
+    obj.maxItems >= 0 &&
+    Number.isInteger(obj.maxItems)
+  ) {
+    cfg.maxItems = obj.maxItems
+  }
 
   return cfg
 }
@@ -87,6 +107,9 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     mathXMax: cfg.mathXMax,
     mathYMax,
     pixelsPerUnit,
+    itemSize: cfg.itemSize,
+    itemSpawnRate: cfg.itemSpawnRate,
+    maxItems: cfg.maxItems,
   }
 }
 
