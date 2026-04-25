@@ -340,7 +340,31 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer })
 
+// アイドル切断対策: 30秒ごとに ping を送り、pong が返らない接続は terminate する
+// Render 等のホスティング側 LB が無通信の WebSocket を ~10分で切るのを回避する
+const HEARTBEAT_INTERVAL_MS = 30_000
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    const alive = (ws as WebSocket & { isAlive?: boolean }).isAlive
+    if (alive === false) {
+      ws.terminate()
+      continue
+    }
+    ;(ws as WebSocket & { isAlive?: boolean }).isAlive = false
+    ws.ping()
+  }
+}, HEARTBEAT_INTERVAL_MS)
+
+wss.on('close', () => {
+  clearInterval(heartbeat)
+})
+
 wss.on('connection', (ws, req) => {
+  ;(ws as WebSocket & { isAlive?: boolean }).isAlive = true
+  ws.on('pong', () => {
+    ;(ws as WebSocket & { isAlive?: boolean }).isAlive = true
+  })
+
   // URLからルームIDを取得: /room/ROOM_ID
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const pathParts = url.pathname.split('/').filter(Boolean)
