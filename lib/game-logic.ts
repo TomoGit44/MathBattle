@@ -430,10 +430,18 @@ export const resolveActions = (
   }
 }
 
+export interface SanitizeOptions {
+  // 相手の視覚的な位置を上書きする (action フェーズ中に「相手の即時移動」を隠すために使用)
+  opponentVisiblePosition?: Position
+  // 相手の hasMovedThisTurn を隠す (action フェーズ中に移動の有無自体を秘匿)
+  hideOpponentHasMoved?: boolean
+}
+
 export const sanitizeStateForPlayer = (
   state: GameState,
   playerId: string,
-  turnResult?: TurnResult
+  turnResult?: TurnResult,
+  opts?: SanitizeOptions
 ): ClientGameState => {
   const me = state.players[playerId]
   const opponentEntry = Object.entries(state.players).find(([id]) => id !== playerId)
@@ -443,12 +451,12 @@ export const sanitizeStateForPlayer = (
         id: opponentEntry[1].id,
         name: opponentEntry[1].name,
         hp: opponentEntry[1].hp,
-        position: opponentEntry[1].position,
+        position: opts?.opponentVisiblePosition ?? opponentEntry[1].position,
         facing: opponentEntry[1].facing,
         handCount: opponentEntry[1].hand.length,
         deckRemaining: opponentEntry[1].deckRemaining,
         functionUsesRemaining: opponentEntry[1].functionUsesRemaining,
-        hasMovedThisTurn: opponentEntry[1].hasMovedThisTurn,
+        hasMovedThisTurn: opts?.hideOpponentHasMoved ? false : opponentEntry[1].hasMovedThisTurn,
       }
     : {
         id: '',

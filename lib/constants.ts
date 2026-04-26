@@ -20,7 +20,7 @@ export const MAX_REFLECTIONS = 3
 export const DRAW_COUNT = 2
 export const MAX_HAND_SIZE = 16
 export const MAX_CALC_CARDS = 5
-export const NUMBER_REPLENISH_THRESHOLD = 2
+export const NUMBER_REPLENISH_THRESHOLD = 3
 
 // ターン
 // ※ ACTION_TIMEOUT_MS は game-config.json (lib/config.ts) で上書き可能。
@@ -45,7 +45,7 @@ export const CURVE_COLLISION_THRESHOLD = 30 // px (PLAYER_SIZE + マージン)
 
 // アイテム
 export const ITEM_SIZE = 40              // px (当たり判定の直径)
-export const ITEM_SPAWN_RATE = 0.5       // 毎ターンの出現確率
+export const ITEM_SPAWN_RATE = 0.9       // 毎ターンの出現確率
 export const MAX_ITEMS = 5               // フィールド上の同時存在上限
 export const ITEM_HP_MIN = 1             // ランダムHPの下限
 export const ITEM_HP_MAX = 50            // ランダムHPの上限
@@ -57,6 +57,10 @@ export const MATH_X_MIN = -10
 export const MATH_X_MAX = 10
 export const MATH_Y_MIN = -5
 export const MATH_Y_MAX = 5
+
+// グリッド線 (数学座標単位)。x軸・y軸 (原点) を基準にこの間隔ごとに描画される
+export const GRID_SPACING_X = 0.5
+export const GRID_SPACING_Y = 0.5
 
 // デフォルトデッキ (演算カード7枚のみ。数字カード1-9は手札補充で供給)
 export const DEFAULT_DECK: Card[] = [

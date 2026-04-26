@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { createServer } from 'http'
-import type { GameState, Card, Action, ClientMessage, ServerMessage } from '../lib/types'
+import type { GameState, Card, Action, ClientMessage, ServerMessage, Position } from '../lib/types'
 import {
   initializeGameState,
   addPlayer,
@@ -36,6 +36,8 @@ interface Room {
   playerOrder: string[]
   players: Map<string, PlayerConnection>
   actionTimer: ReturnType<typeof setTimeout> | null
+  // ターン開始時の各プレイヤー位置 (action フェーズ中の即時移動を相手に対して秘匿するため)
+  turnStartPositions: Map<string, Position>
 }
 
 const rooms = new Map<string, Room>()
@@ -48,7 +50,29 @@ const createRoom = (roomId: string): Room => ({
   playerOrder: [],
   players: new Map(),
   actionTimer: null,
+  turnStartPositions: new Map(),
 })
+
+// ターン開始時の位置スナップショットを記録 (action フェーズ中の相手秘匿表示用)
+const captureTurnStartPositions = (room: Room) => {
+  room.turnStartPositions.clear()
+  for (const [id, p] of Object.entries(room.gameState.players)) {
+    room.turnStartPositions.set(id, { ...p.position })
+  }
+}
+
+// 指定 viewerId 視点でサニタイズする際のオプションを構築する。
+// action フェーズ中で、相手が今ターン移動済みなら、相手の位置をターン開始時のものに差し替える。
+const sanitizeOptsFor = (room: Room, viewerId: string) => {
+  if (room.gameState.phase !== 'action') return undefined
+  const opponentEntry = Object.entries(room.gameState.players).find(([id]) => id !== viewerId)
+  if (!opponentEntry) return undefined
+  const [oppId, oppState] = opponentEntry
+  if (!oppState.hasMovedThisTurn) return undefined
+  const original = room.turnStartPositions.get(oppId)
+  if (!original) return undefined
+  return { opponentVisiblePosition: original, hideOpponentHasMoved: true }
+}
 
 const getOrCreateRoom = (roomId: string): Room => {
   let room = rooms.get(roomId)
@@ -74,12 +98,12 @@ const sendStateToAll = (room: Room, turnResult?: ReturnType<typeof resolveAction
       send(pc.ws, {
         type: 'gameOver',
         winnerId,
-        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult),
+        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult, sanitizeOptsFor(room, playerId)),
       })
     } else {
       send(pc.ws, {
         type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult),
+        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult, sanitizeOptsFor(room, playerId)),
       })
     }
   }
@@ -108,6 +132,8 @@ const startNewTurn = (room: Room) => {
   room.gameState = result.state
   room.decks = result.decks
   room.pendingActions.clear()
+  // ターン開始位置をスナップショット (相手側の移動秘匿表示用)
+  captureTurnStartPositions(room)
   sendStateToAll(room)
   startActionTimer(room)
 }
@@ -160,6 +186,8 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
   room.gameState = drawn.state
   room.decks = drawn.decks
 
+  // ゲーム開始時のターン開始位置を記録
+  captureTurnStartPositions(room)
   sendStateToAll(room)
   startActionTimer(room)
 }
@@ -187,13 +215,11 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     }
     room.gameState = next
 
-    // 両プレイヤーに即時ブロードキャスト
-    for (const [otherId, pc] of room.players) {
-      send(pc.ws, {
-        type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, otherId),
-      })
-    }
+    // 移動した本人にだけ通知。相手には何も送らない (移動の有無自体を秘匿するため)。
+    send(ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
+    })
     return
   }
 
@@ -208,12 +234,12 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     const next = markMoveSkipped(room.gameState, connId)
     if (!next) return
     room.gameState = next
-    for (const [otherId, pc] of room.players) {
-      send(pc.ws, {
-        type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, otherId),
-      })
-    }
+    // 自分のクライアントには通知 (UI が phase 2 に進む)
+    send(ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
+    })
+    // 相手には通知しない (移動フェーズの選択を秘匿)
     return
   }
 
@@ -270,15 +296,15 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     // 当該プレイヤーにのみ更新後のstateを送信 (相手の手札増減は handCount で見える)
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, primeResult),
+      state: sanitizeStateForPlayer(room.gameState, connId, primeResult, sanitizeOptsFor(room, connId)),
     })
 
-    // 相手にも opponent.handCount の更新を反映
+    // 相手にも opponent.handCount の更新を反映 (相手の移動有無・新位置は秘匿)
     for (const [otherId, pc] of room.players) {
       if (otherId === connId) continue
       send(pc.ws, {
         type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, otherId),
+        state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
       })
     }
     return

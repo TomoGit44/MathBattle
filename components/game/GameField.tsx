@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { ClientGameState, Bullet } from '@/lib/types'
-import { ANIMATION_DURATION_MS } from '@/lib/constants'
+import { ANIMATION_DURATION_MS, GRID_SPACING_X, GRID_SPACING_Y } from '@/lib/constants'
 import { predictTrajectories } from '@/lib/trajectory'
 import { Player } from './Player'
 import { BulletDisplay } from './BulletDisplay'
@@ -84,23 +84,37 @@ export const GameField = ({ gameState }: GameFieldProps) => {
 
   return (
     <div className="relative w-full aspect-[2/1] bg-gray-800 border-2 border-gray-600 rounded-lg overflow-hidden">
-      {/* グリッド線 */}
+      {/* グリッド線: x軸・y軸 (原点) を基準に GRID_SPACING_X / GRID_SPACING_Y ごとに描画 */}
       <div className="absolute inset-0 opacity-10">
-        {Array.from({ length: 9 }, (_, i) => (
-          <div
-            key={`v-${i}`}
-            className="absolute top-0 bottom-0 w-px bg-gray-400"
-            style={{ left: `${(i + 1) * 10}%` }}
-          />
-        ))}
-        {/* 横線: y = 4, 2, 0, -2, -4 (top: 10%, 30%, 50%, 70%, 90%) */}
-        {Array.from({ length: 5 }, (_, i) => (
-          <div
-            key={`h-${i}`}
-            className="absolute left-0 right-0 h-px bg-gray-400"
-            style={{ top: `${10 + i * 20}%` }}
-          />
-        ))}
+        {(() => {
+          const { mathXMax, mathYMax } = settings
+          const verticals: number[] = []
+          for (let v = GRID_SPACING_X; v <= mathXMax + 1e-9; v += GRID_SPACING_X) {
+            verticals.push(v, -v)
+          }
+          const horizontals: number[] = []
+          for (let v = GRID_SPACING_Y; v <= mathYMax + 1e-9; v += GRID_SPACING_Y) {
+            horizontals.push(v, -v)
+          }
+          return (
+            <>
+              {verticals.map((v, i) => (
+                <div
+                  key={`v-${i}`}
+                  className="absolute top-0 bottom-0 w-px bg-gray-400"
+                  style={{ left: `${((v + mathXMax) / (2 * mathXMax)) * 100}%` }}
+                />
+              ))}
+              {horizontals.map((v, i) => (
+                <div
+                  key={`h-${i}`}
+                  className="absolute left-0 right-0 h-px bg-gray-400"
+                  style={{ top: `${((mathYMax - v) / (2 * mathYMax)) * 100}%` }}
+                />
+              ))}
+            </>
+          )
+        })()}
       </div>
 
       {/* 直交座標軸 */}

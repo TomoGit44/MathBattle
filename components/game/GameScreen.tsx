@@ -36,18 +36,31 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
 
   return (
     <div className="flex flex-col items-center min-h-[100dvh] p-2 sm:p-4 gap-2 sm:gap-3 max-w-3xl mx-auto">
-      {/* ヘッダー: ターン情報 */}
+      {/* ヘッダー: ターン情報 (HPバーの左右はフィールド上の出現位置に合わせる) */}
       <div className="flex items-center justify-between w-full">
-        <HpBar name={me.name} hp={me.hp} isMe />
-        <div className="text-center">
-          <div className="text-xs text-gray-500">Turn {turn}</div>
-          <div className="text-sm font-bold text-yellow-400">{phaseLabel(phase)}</div>
-        </div>
-        <HpBar name={opponent.name} hp={opponent.hp} isMe={false} />
+        {me.facing === 'right' ? (
+          <>
+            <HpBar name={me.name} hp={me.hp} isMe />
+            <div className="text-center">
+              <div className="text-xs text-gray-500">Turn {turn}</div>
+              <div className="text-sm font-bold text-yellow-400">{phaseLabel(phase)}</div>
+            </div>
+            <HpBar name={opponent.name} hp={opponent.hp} isMe={false} />
+          </>
+        ) : (
+          <>
+            <HpBar name={opponent.name} hp={opponent.hp} isMe={false} />
+            <div className="text-center">
+              <div className="text-xs text-gray-500">Turn {turn}</div>
+              <div className="text-sm font-bold text-yellow-400">{phaseLabel(phase)}</div>
+            </div>
+            <HpBar name={me.name} hp={me.hp} isMe />
+          </>
+        )}
       </div>
 
-      {/* 相手情報 */}
-      <div className="flex justify-end w-full">
+      {/* 相手情報 (相手のフィールド側に寄せる) */}
+      <div className={`flex w-full ${me.facing === 'right' ? 'justify-end' : 'justify-start'}`}>
         <OpponentInfo opponent={opponent} />
       </div>
 
