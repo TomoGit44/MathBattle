@@ -7,6 +7,8 @@ import { HpBar } from './HpBar'
 import { ActionPanel } from './ActionPanel'
 import { OpponentInfo } from './OpponentInfo'
 import { TurnResult } from './TurnResult'
+import { ActionLog, type LogEntry } from './ActionLog'
+import { MAX_HAND_SIZE } from '@/lib/constants'
 
 interface GameScreenProps {
   gameState: ClientGameState
@@ -26,6 +28,8 @@ const phaseLabel = (phase: string): string => {
 export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
   const { me, opponent, phase, turn, turnResult } = gameState
   const [actionKey, setActionKey] = useState(0)
+  const [actionLog, setActionLog] = useState<LogEntry[]>([])
+  const [logOpen, setLogOpen] = useState(false)
 
   // アクションフェーズが変わるたびにActionPanelをリセット
   useEffect(() => {
@@ -33,6 +37,23 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
       setActionKey((k) => k + 1)
     }
   }, [phase, turn])
+
+  // 新ターンの結果を見たらログに追記 (ターン番号で重複防止)
+  useEffect(() => {
+    if (!turnResult) return
+    if (phase !== 'result' && phase !== 'gameover') return
+    setActionLog((prev) => {
+      if (prev.some((e) => e.turn === turn)) return prev
+      return [
+        ...prev,
+        {
+          turn,
+          result: turnResult,
+          playerNames: { [me.id]: me.name, [opponent.id]: opponent.name },
+        },
+      ]
+    })
+  }, [phase, turn, turnResult, me.id, me.name, opponent.id, opponent.name])
 
   return (
     <div className="flex flex-col items-center min-h-[100dvh] p-2 sm:p-4 gap-2 sm:gap-3 max-w-3xl mx-auto">
@@ -87,10 +108,24 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
         />
       </div>
 
-      {/* 自分の情報 */}
-      <div className="text-xs text-gray-500">
-        手札: {me.hand.length}枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
+      {/* 自分の情報 + ログボタン */}
+      <div className="w-full flex items-center justify-between gap-2 text-xs text-gray-500">
+        <span>
+          手札: <span className={me.hand.length >= MAX_HAND_SIZE ? 'text-red-400 font-bold' : ''}>{me.hand.length}/{MAX_HAND_SIZE}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
+        </span>
+        <button
+          onClick={() => setLogOpen(true)}
+          className="px-2 py-1 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs flex items-center gap-1"
+          aria-label="アクションログを開く"
+        >
+          📜 ログ
+          {actionLog.length > 0 && (
+            <span className="text-[10px] text-gray-400">({actionLog.length})</span>
+          )}
+        </button>
       </div>
+
+      <ActionLog log={actionLog} open={logOpen} onClose={() => setLogOpen(false)} />
     </div>
   )
 }

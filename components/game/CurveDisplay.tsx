@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import type { FunctionCurve, GameSettings } from '@/lib/types'
 import { evaluateFunction } from '@/lib/func-engine'
 import { FIELD_WIDTH, FIELD_HEIGHT, CURVE_SAMPLE_COUNT } from '@/lib/constants'
@@ -6,9 +7,10 @@ interface CurveDisplayProps {
   curve: FunctionCurve
   isOwn: boolean
   settings: GameSettings
+  onClick?: (curve: FunctionCurve, e: MouseEvent) => void
 }
 
-export const CurveDisplay = ({ curve, isOwn, settings }: CurveDisplayProps) => {
+export const CurveDisplay = ({ curve, isOwn, settings, onClick }: CurveDisplayProps) => {
   const color = isOwn ? '#3b82f6' : '#ef4444'
   const { mathXMax, mathYMax } = settings
 
@@ -62,7 +64,22 @@ export const CurveDisplay = ({ curve, isOwn, settings }: CurveDisplayProps) => {
         strokeOpacity="0.8"
         strokeLinecap="round"
         strokeLinejoin="round"
+        pointerEvents="none"
       />
+      {/* タップ用の太い透明パス (タップしやすさ優先) */}
+      {onClick && (
+        <path
+          d={pathData}
+          fill="none"
+          stroke="transparent"
+          strokeWidth="20"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          pointerEvents="stroke"
+          style={{ cursor: 'pointer' }}
+          onClick={(e) => onClick(curve, e)}
+        />
+      )}
       <text
         x={labelPx + 5}
         y={Math.max(12, Math.min(FIELD_HEIGHT - 4, labelPy - 8))}
@@ -70,6 +87,7 @@ export const CurveDisplay = ({ curve, isOwn, settings }: CurveDisplayProps) => {
         fontSize="10"
         fontWeight="bold"
         opacity="0.7"
+        pointerEvents="none"
       >
         {curve.displayString}
       </text>

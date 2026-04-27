@@ -30,6 +30,47 @@ export const createBullet = (
   }
 }
 
+// 角丸矩形 (中心 c, 半幅 hw, 半高 hh, 角半径 cr) の内部に点 p があるかを判定。
+export const pointInRoundedRect = (
+  p: Position,
+  c: Position,
+  hw: number,
+  hh: number,
+  cr: number
+): boolean => {
+  const x = Math.abs(p.x - c.x)
+  const y = Math.abs(p.y - c.y)
+  if (x > hw || y > hh) return false
+  if (x <= hw - cr || y <= hh - cr) return true
+  const dx = x - (hw - cr)
+  const dy = y - (hh - cr)
+  return dx * dx + dy * dy <= cr * cr
+}
+
+// 線分 p0→p1 が角丸矩形に交差するかを高密度サンプリングで判定。
+// 弾中心の経路 vs (アイテム角丸矩形 + 弾半径) のミンコフスキー和 に使う。
+export const segmentHitsRoundedRect = (
+  p0: Position,
+  p1: Position,
+  c: Position,
+  hw: number,
+  hh: number,
+  cr: number
+): boolean => {
+  const dx = p1.x - p0.x
+  const dy = p1.y - p0.y
+  const len = Math.sqrt(dx * dx + dy * dy)
+  // サンプル間隔 ~2px (最低17点)
+  const samples = Math.max(16, Math.ceil(len / 2))
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples
+    if (pointInRoundedRect({ x: p0.x + dx * t, y: p0.y + dy * t }, c, hw, hh, cr)) {
+      return true
+    }
+  }
+  return false
+}
+
 // --- 連続衝突判定 (Swept Circle vs Swept Circle) ---
 // A(t) = a0 + t*(a1-a0), B(t) = b0 + t*(b1-b0), t∈[0,1]
 // |A(t)-B(t)|^2 - r^2 が [0,1] で 0 以下になるかを解析的に判定。

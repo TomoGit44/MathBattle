@@ -6,7 +6,7 @@ export const FIELD_HEIGHT = 400
 
 // プレイヤー
 export const PLAYER_SIZE = 24
-export const INITIAL_HP = 100
+export const INITIAL_HP = 50
 export const MOVE_DISTANCE = 40
 
 // 弾
@@ -45,6 +45,7 @@ export const CURVE_COLLISION_THRESHOLD = 30 // px (PLAYER_SIZE + マージン)
 
 // アイテム
 export const ITEM_SIZE = 40              // px (当たり判定の直径)
+export const ITEM_CORNER_RADIUS = 6      // px (見た目の rounded-md と当たり判定の角丸半径)
 export const ITEM_SPAWN_RATE = 0.9       // 毎ターンの出現確率
 export const MAX_ITEMS = 5               // フィールド上の同時存在上限
 export const ITEM_HP_MIN = 1             // ランダムHPの下限

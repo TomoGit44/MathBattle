@@ -2,10 +2,10 @@
 // アイテムは静止オブジェクト。両プレイヤーが攻撃可能で、最後にHPを0にした側が
 // その演算子カードを獲得する。
 import type { Bullet, FieldItem, GameSettings, ItemKind, Position } from './types'
-import { ITEM_HP_MAX, ITEM_HP_MIN, ITEM_SPAWN_X_HALF_WIDTH } from './constants'
-import { sweptCirclesOverlap } from './physics'
+import { ITEM_CORNER_RADIUS, ITEM_HP_MAX, ITEM_HP_MIN, ITEM_SPAWN_X_HALF_WIDTH } from './constants'
+import { pointInRoundedRect, segmentHitsRoundedRect } from './physics'
 import { isPrimeBullet } from './prime'
-import { sampleCurve, isPlayerOnCurve } from './curve-collision'
+import { sampleCurve } from './curve-collision'
 import type { FunctionCurve } from './types'
 
 const ITEM_KINDS: ItemKind[] = ['+', '-', '×', '÷']
@@ -82,10 +82,13 @@ export const checkBulletItemCollisions = (
     for (const item of itemMap.values()) {
       if (item.hp <= 0) continue
 
-      const collisionDist = settings.bulletRadius + item.size / 2
-      // 静止アイテム: b0 = b1 = item.position
+      // アイテムは角丸正方形。弾(円)の経路 vs (アイテム角丸矩形 ⊕ 弾半径) で判定。
+      const halfSize = item.size / 2
+      const hw = halfSize + settings.bulletRadius
+      const hh = halfSize + settings.bulletRadius
+      const cr = ITEM_CORNER_RADIUS + settings.bulletRadius
       if (
-        !sweptCirclesOverlap(bulletPrev, bullet.position, item.position, item.position, collisionDist)
+        !segmentHitsRoundedRect(bulletPrev, bullet.position, item.position, hw, hh, cr)
       ) {
         continue
       }
@@ -134,7 +137,11 @@ export const applyCurveDamageToItems = (
 
     for (const item of itemMap.values()) {
       if (item.hp <= 0) continue
-      if (isPlayerOnCurve(item.position, sampled)) {
+      const halfSize = item.size / 2
+      const hit = sampled.some((pt) =>
+        pointInRoundedRect(pt, item.position, halfSize, halfSize, ITEM_CORNER_RADIUS)
+      )
+      if (hit) {
         item.hp -= fnDamage
         if (item.hp <= 0 && !kills.find((k) => k.itemId === item.id)) {
           kills.push({ itemId: item.id, kind: item.kind, killerId: curve.owner })

@@ -1,8 +1,10 @@
+import type { MouseEvent } from 'react'
 import type { FieldItem } from '@/lib/types'
 
 interface ItemDisplayProps {
   item: FieldItem
   fieldSize: { width: number; height: number }
+  onClick?: (item: FieldItem, e: MouseEvent) => void
 }
 
 // 演算子別カラーリング
@@ -15,7 +17,7 @@ const colorOf = (kind: FieldItem['kind']): string => {
   }
 }
 
-export const ItemDisplay = ({ item, fieldSize }: ItemDisplayProps) => {
+export const ItemDisplay = ({ item, fieldSize, onClick }: ItemDisplayProps) => {
   const left = (item.position.x / fieldSize.width) * 100
   const top = (item.position.y / fieldSize.height) * 100
   const widthPct = ((item.size) / fieldSize.width) * 100
@@ -24,13 +26,14 @@ export const ItemDisplay = ({ item, fieldSize }: ItemDisplayProps) => {
 
   return (
     <div
-      className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+      className={`absolute -translate-x-1/2 -translate-y-1/2 ${onClick ? 'cursor-pointer' : 'pointer-events-none'}`}
       style={{
         left: `${left}%`,
         top: `${top}%`,
         width: `${widthPct}%`,
         height: `${heightPct}%`,
       }}
+      onClick={onClick ? (e) => onClick(item, e) : undefined}
     >
       {/* 本体 (角丸正方形) */}
       <div
