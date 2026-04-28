@@ -61,31 +61,50 @@ export const validateCalculation = (
 export const evaluateCalculation = (items: HandItem[]): number | null => {
   if (!Array.isArray(items) || items.length === 0) return null
 
-  let result = getNumericValue(items[0])
-  if (result === null) return null
+  // values と ops の交互列に分解
+  const values: number[] = []
+  const ops: string[] = []
+
+  const first = getNumericValue(items[0])
+  if (first === null) return null
+  values.push(first)
 
   for (let i = 1; i < items.length; i += 2) {
     const op = getOperator(items[i])
     const next = getNumericValue(items[i + 1])
     if (op === null || next === null) return null
+    ops.push(op)
+    values.push(next)
+  }
 
-    switch (op) {
-      case '+':
-        result += next
-        break
-      case '-':
-        result -= next
-        break
-      case '×':
-        result *= next
-        break
-      case '÷':
-        if (next === 0) return null
-        result /= next
-        break
-      default:
-        return null
+  // パス1: × と ÷ を左→右で畳み込む
+  for (let i = 0; i < ops.length; ) {
+    const op = ops[i]
+    if (op === '×' || op === '÷') {
+      const a = values[i]
+      const b = values[i + 1]
+      let v: number
+      if (op === '×') {
+        v = a * b
+      } else {
+        if (b === 0) return null
+        v = a / b
+      }
+      values.splice(i, 2, v)
+      ops.splice(i, 1)
+    } else {
+      i++
     }
+  }
+
+  // パス2: + と - を左→右で処理
+  let result = values[0]
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]
+    const next = values[i + 1]
+    if (op === '+') result += next
+    else if (op === '-') result -= next
+    else return null
   }
 
   if (!Number.isFinite(result)) return null

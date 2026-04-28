@@ -112,7 +112,8 @@ export const validateFunctionExpression = (
 }
 
 /**
- * 数値xを代入して式を左→右で評価する。
+ * 数値xを代入して式を評価する。
+ * × と ÷ を + と - より優先 (通常の数学の優先順位)。同優先度内は左→右。
  * 0除算の場合は null を返す。
  */
 export const evaluateFunction = (
@@ -126,30 +127,45 @@ export const evaluateFunction = (
     return item.value ?? 0
   }
 
-  let result = getValue(expression[0])
+  // values と ops の交互列に分解
+  const values: number[] = [getValue(expression[0])]
+  const ops: string[] = []
 
   for (let i = 1; i < expression.length; i += 2) {
     const op = expression[i]
     const next = expression[i + 1]
-    if (!op || !next) break
+    if (!op || !next || !op.operator) break
+    ops.push(op.operator)
+    values.push(getValue(next))
+  }
 
-    const nextVal = getValue(next)
-
-    switch (op.operator) {
-      case '+':
-        result += nextVal
-        break
-      case '-':
-        result -= nextVal
-        break
-      case '×':
-        result *= nextVal
-        break
-      case '÷':
-        if (nextVal === 0) return null
-        result /= nextVal
-        break
+  // パス1: × と ÷ を左→右で畳み込む
+  for (let i = 0; i < ops.length; ) {
+    const op = ops[i]
+    if (op === '×' || op === '÷') {
+      const a = values[i]
+      const b = values[i + 1]
+      let v: number
+      if (op === '×') {
+        v = a * b
+      } else {
+        if (b === 0) return null
+        v = a / b
+      }
+      values.splice(i, 2, v)
+      ops.splice(i, 1)
+    } else {
+      i++
     }
+  }
+
+  // パス2: + と - を左→右で処理
+  let result = values[0]
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]
+    const next = values[i + 1]
+    if (op === '+') result += next
+    else if (op === '-') result -= next
   }
 
   return isFinite(result) ? result : null
