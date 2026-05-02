@@ -12,7 +12,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#111827',
+  themeColor: '#050714',
 }
 
 const Layout = ({
@@ -22,7 +22,7 @@ const Layout = ({
 }) => {
   return (
     <html lang="ja">
-      <body className="bg-gray-900 text-white min-h-screen">
+      <body className="bg-bg-deep text-text min-h-screen">
         {children}
       </body>
     </html>

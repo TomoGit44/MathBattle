@@ -1,0 +1,314 @@
+/*
+ * Math Battle Online — Design Tokens
+ * Cyberpunk Math: TRON × グラフ電卓 × 渋谷 2050
+ *
+ * このファイルは色 / モーションの単一の真実源 (single source of truth)。
+ * すべてのコンポーネントは生の Tailwind カラーや 16進値ではなく、
+ * これらのトークンを `@theme inline` 経由で参照する。
+ *
+ * フォントは現行 (system stack / font-mono) を維持するため、ここでは扱わない。
+ */
+
+:root {
+  /* === Color: Cyberpunk Math 美学 === */
+  /* 背景: 純黒ではなく、わずかにブルーシフトしたインク */
+  --color-bg-deep:    #050714;
+  --color-bg-mid:     #0b1228;
+  --color-bg-elev:    #111a32;
+  --color-bg-panel:   rgba(10, 18, 40, 0.72);
+  --color-bg-overlay: rgba(2, 4, 12, 0.7);
+
+  /* グリッド・座標軸: TRON の主軸に格上げ */
+  --color-grid-minor:  rgba(56, 189, 248, 0.08);
+  --color-grid-major:  rgba(56, 189, 248, 0.18);
+  --color-axis:        rgba(165, 243, 252, 0.45);
+  --color-axis-origin: #67e8f9;
+
+  /* プレイヤー識別色 (P1 = 自分 = sky / P2 = 敵 = rose) */
+  --color-p1:        #38bdf8;
+  --color-p1-deep:   #0ea5e9;
+  --color-p1-bg:     #082f49;
+  --color-p1-border: #7dd3fc;
+  --color-p1-glow:   rgba(56, 189, 248, 0.55);
+
+  --color-p2:        #fb7185;
+  --color-p2-deep:   #f43f5e;
+  --color-p2-bg:     #4c0519;
+  --color-p2-border: #fda4af;
+  --color-p2-glow:   rgba(251, 113, 133, 0.55);
+
+  /* 弾は所有者色を継承 (currentColor) */
+  --color-bullet-trail: currentColor;
+
+  /* 素数: AI slop 脱出 — fuchsia 軸を捨て、violet + ガラス白 */
+  --color-prime:        #ede9fe;             /* violet-100 */
+  --color-prime-edge:   #c4b5fd;             /* violet-300 */
+  --color-prime-deep:   #7c3aed;             /* violet-600 (深い縁取りのみ) */
+  --color-prime-bg:     #1e1b4b;             /* indigo-950 */
+  --color-prime-text:   #ede9fe;
+  --color-prime-glow:   rgba(196, 181, 253, 0.7);
+  --shadow-prime:       0 0 14px rgba(196, 181, 253, 0.85),
+                        0 0 32px rgba(196, 181, 253, 0.45);
+
+  /* 関数カーブ */
+  --color-curve-own:  var(--color-p1);
+  --color-curve-foe:  var(--color-p2);
+
+  /* HP バー */
+  --color-hp-full:   #4ade80;
+  --color-hp-warn:   #facc15;
+  --color-hp-low:    #f87171;
+  --color-hp-track:  #1e293b;
+  --color-hp-ghost:  rgba(248, 113, 113, 0.35);
+
+  /* テキスト */
+  --color-text:       #e0f2fe;
+  --color-text-mid:   #cbd5e1;
+  --color-text-dim:   #94a3b8;
+  --color-text-faint: #64748b;
+  --color-text-mute:  #475569;
+  --color-warn:       #fbbf24;
+  --color-error:      #ef4444;
+  --color-success:    #4ade80;
+
+  /* 演算子 (アイテム/手札) — Cyberpunk の差し色に揃える */
+  --color-op-add:        #4ade80;
+  --color-op-add-bg:     #052e16;
+  --color-op-add-border: #86efac;
+  --color-op-sub:        #fb923c;
+  --color-op-sub-bg:     #431407;
+  --color-op-sub-border: #fdba74;
+  --color-op-mul:        #c084fc;
+  --color-op-mul-bg:     #2e1065;
+  --color-op-mul-border: #d8b4fe;
+  --color-op-div:        #f472b6;
+  --color-op-div-bg:     #500724;
+  --color-op-div-border: #f9a8d4;
+
+  /* 中立トーン (ボーダー / パネル) */
+  --color-line:       rgba(148, 163, 184, 0.22);
+  --color-line-soft:  rgba(148, 163, 184, 0.12);
+  --color-line-strong:rgba(165, 243, 252, 0.28);
+
+  /* === Game-specific glow / shadow === */
+  --shadow-bullet:  0 0 8px currentColor;
+  --shadow-p1:      0 0 10px var(--color-p1-glow);
+  --shadow-p2:      0 0 10px var(--color-p2-glow);
+  --shadow-soft:    0 1px 0 rgba(255,255,255,0.04) inset,
+                    0 0 0 1px rgba(165,243,252,0.06);
+
+  /* === Motion === */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-back:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snap:      cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-glide:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
+
+  --dur-instant:  80ms;
+  --dur-fast:    180ms;
+  --dur-base:    320ms;
+  --dur-slow:    600ms;
+  --dur-cinema: 1200ms;
+  --dur-replay: 3000ms;
+
+  /* シェイク振幅 (effects.ts から参照) */
+  --shake-strong: 12px;
+  --shake-mid:    6px;
+  --shake-weak:   3px;
+
+  /* ヒットストップ duration */
+  --hitstop-prime: 120ms;
+  --hitstop-hit:    60ms;
+  --hitstop-ko:    400ms;
+
+  /* ガラス質感 */
+  --glass-blur:   12px;
+  --glass-border: 1px solid rgba(165, 243, 252, 0.18);
+}
+
+/* prefers-reduced-motion: モーションを無効化 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 1ms;
+    --dur-fast:    1ms;
+    --dur-base:    1ms;
+    --dur-slow:    1ms;
+    --dur-cinema:  1ms;
+    --dur-replay:  1ms;
+    --shake-strong: 0px;
+    --shake-mid:    0px;
+    --shake-weak:   0px;
+    --hitstop-prime: 0ms;
+    --hitstop-hit:   0ms;
+    --hitstop-ko:    0ms;
+  }
+}
+
+/* ===== グローバル keyframes (P0 で必要な最小) ===== */
+@keyframes mb-pulse-soft {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.95; }
+}
+
+@keyframes mb-spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes mb-prime-flash {
+  0%   { opacity: 0; transform: scale(0.6); }
+  18%  { opacity: 1; transform: scale(1.18); }
+  40%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+@keyframes mb-grid-drift {
+  0%   { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+@keyframes mb-scan {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* カード入場 stagger 用 */
+@keyframes mb-card-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ダメージ数値ポップアップ: 上昇しながらフェード */
+@keyframes mb-damage-pop {
+  0%   { opacity: 0; transform: translate(-50%, 8px) scale(0.7); }
+  20%  { opacity: 1; transform: translate(-50%, -10px) scale(1.15); }
+  60%  { opacity: 1; transform: translate(-50%, -32px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -56px) scale(0.85); }
+}
+
+/* 衝突点の式表示: 中央にポップして消える */
+@keyframes mb-collision-equation {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  70%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -70%) scale(0.95); }
+}
+
+/* 全画面ダメージフラッシュ */
+@keyframes mb-damage-flash {
+  0%   { opacity: 0; }
+  15%  { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+/* HP バー減少時のゴーストバー追従 */
+@keyframes mb-ghost-shrink {
+  0%   { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+/* 低 HP 緊張: バー全体の opacity を脈動 (transform/opacity のみ) */
+@keyframes mb-low-hp {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* 関数カーブ ドロー演出: stroke-dashoffset で 1→0 にする */
+@keyframes mb-curve-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* 永続カーブのブリージング (opacity のみ) */
+@keyframes mb-curve-breathe {
+  0%, 100% { opacity: 0.65; }
+  50%      { opacity: 1;    }
+}
+
+/* カーブダメージ パルス: scale + opacity */
+@keyframes mb-curve-pulse {
+  0%   { opacity: 0.7; transform: scale(1); }
+  35%  { opacity: 1;   transform: scale(1.05); }
+  100% { opacity: 0.85; transform: scale(1); }
+}
+
+/* 軌跡プレビューの走査線: linear に dashoffset を流す (linear は意図的) */
+@keyframes mb-traj-scan {
+  from { stroke-dashoffset: 0;   }
+  to   { stroke-dashoffset: -32; }
+}
+
+/* 軌跡終点マーカーの呼吸 */
+@keyframes mb-traj-marker {
+  0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 0.95; transform: translate(-50%, -50%) scale(1.06); }
+}
+
+/* 低 HP ビネット: 画面端の赤いグロー脈動 (opacity のみ) */
+@keyframes mb-vignette {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.7; }
+}
+
+/* シネマ導入: 「RESOLVING TURN n」の登場・退場 */
+@keyframes mb-cinema-intro {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+  20%  { opacity: 1; transform: translate(-50%, -50%) scale(1);   }
+  80%  { opacity: 1; transform: translate(-50%, -50%) scale(1);   }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05);}
+}
+
+/* TurnResult パネル: stagger fade-in */
+@keyframes mb-result-row {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* ロビータイトル入場 */
+@keyframes mb-title-in {
+  0%   { opacity: 0; transform: translateY(-8px) scale(0.96); letter-spacing: 0.6em; }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); letter-spacing: 0.18em; }
+}
+
+/* 接続待ちのドット脈動 (3つを位相ずらしで使う) */
+@keyframes mb-dot-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.85); }
+  40%           { opacity: 1;   transform: scale(1.15); }
+}
+
+/* コピー成功時のチップ flash (transform/opacity のみ) */
+@keyframes mb-copy-flash {
+  0%   { transform: scale(1);   }
+  35%  { transform: scale(1.12);}
+  100% { transform: scale(1);   }
+}
+
+/* KO/WIN/DRAW 入場: シェイクしながら登場 → 静止 */
+@keyframes mb-verdict-in {
+  0%   { opacity: 0; transform: translate(0, -16px) scale(0.7); }
+  20%  { opacity: 1; transform: translate(-3px, 0) scale(1.08); }
+  30%  {             transform: translate(3px, 0) scale(1.08); }
+  40%  {             transform: translate(-2px, 0) scale(1.04); }
+  50%  {             transform: translate(2px, 0) scale(1.04); }
+  60%  {             transform: translate(0, 0) scale(1);     }
+  100% { opacity: 1; transform: translate(0, 0) scale(1);     }
+}
+
+/* GameOver 背景の徐々ズームアウト */
+@keyframes mb-verdict-bg {
+  0%   { opacity: 0; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1);    }
+}
+
+/* モーダル右スライドイン */
+@keyframes mb-slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+/* オーバーレイ fade */
+@keyframes mb-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

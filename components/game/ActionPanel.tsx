@@ -135,7 +135,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
   if (submitted || disabled) {
     return (
       <div className="text-center py-4">
-        <div className="text-gray-400">
+        <div className="text-text-dim">
           {submitted ? 'アクション送信済み — 相手を待っています...' : '待機中...'}
         </div>
       </div>
@@ -169,37 +169,37 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
       {/* 第1段階: 移動フェーズ (必須・毎ターン1回) */}
       {!hasMoved && mode === null && (
         <div className="flex flex-col items-center gap-2">
-          <div className="text-sm text-cyan-300 font-bold">ステップ 1: 移動</div>
+          <div className="text-sm text-axis-origin font-bold">ステップ 1: 移動</div>
           <div className="flex flex-col items-center gap-1">
             <button
               onClick={() => submitImmediate({ type: 'move', direction: 'up' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
             >
               ↑
             </button>
             <div className="flex gap-1">
               <button
                 onClick={() => submitImmediate({ type: 'move', direction: 'left' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
               >
                 ←
               </button>
               <button
                 onClick={() => submitImmediate({ type: 'skip_move' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-gray-600 active:bg-gray-700 hover:bg-gray-500 rounded text-[10px] leading-tight touch-manipulation"
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded text-[10px] leading-tight touch-manipulation transition-colors duration-[var(--dur-fast)]"
               >
                 移動<br />しない
               </button>
               <button
                 onClick={() => submitImmediate({ type: 'move', direction: 'right' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+                className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
               >
                 →
               </button>
             </div>
             <button
               onClick={() => submitImmediate({ type: 'move', direction: 'down' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-cyan-700 active:bg-cyan-800 hover:bg-cyan-600 rounded font-bold text-xl sm:text-base touch-manipulation"
+              className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
             >
               ↓
             </button>
@@ -210,30 +210,30 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
       {/* 第2段階: メインアクション選択 */}
       {hasMoved && mode === null && (
         <div className="flex flex-col items-center gap-2">
-          <div className="text-sm text-yellow-300 font-bold">ステップ 2: アクション</div>
+          <div className="text-sm text-warn font-bold">ステップ 2: アクション</div>
           <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
             <button
               onClick={() => setMode('calculate')}
-              className="px-4 py-3 sm:py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 rounded-lg font-bold transition-colors touch-manipulation"
+              className="px-4 py-3 sm:py-2 bg-op-mul-bg active:bg-op-mul-bg/70 hover:bg-op-mul-bg/70 border border-op-mul-border/50 text-op-mul rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               計算
             </button>
             <button
               onClick={() => setMode('attack')}
-              className="px-4 py-3 sm:py-2 bg-red-700 active:bg-red-800 hover:bg-red-600 rounded-lg font-bold transition-colors touch-manipulation"
+              className="px-4 py-3 sm:py-2 bg-p2-bg active:bg-p2-bg/70 hover:bg-p2-bg/70 border border-p2-border/50 text-p2 rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               攻撃
             </button>
             <button
               onClick={() => setMode('function')}
               disabled={functionUsesRemaining <= 0}
-              className="px-4 py-3 sm:py-2 bg-emerald-700 active:bg-emerald-800 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
+              className="px-4 py-3 sm:py-2 bg-op-add-bg active:bg-op-add-bg/70 hover:bg-op-add-bg/70 border border-op-add-border/50 text-op-add disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               関数 ({functionUsesRemaining})
             </button>
             <button
               onClick={() => submit({ type: 'skip' })}
-              className="px-4 py-3 sm:py-2 bg-gray-600 active:bg-gray-700 hover:bg-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
+              className="px-4 py-3 sm:py-2 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               スキップ
             </button>
@@ -245,27 +245,27 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
       {mode === 'calculate' && (
         <div className="flex flex-col gap-2 items-center">
           <div className="flex gap-2 justify-center items-center flex-wrap">
-            <span className="text-sm text-gray-400">カードを選択して計算</span>
+            <span className="text-sm text-text-dim">カードを選択して計算</span>
             <button
               onClick={submitCalculate}
               disabled={calcValidationError !== null || selectedIndices.size === 0}
-              className="px-4 py-2 bg-purple-700 active:bg-purple-800 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors touch-manipulation"
+              className="px-4 py-2 bg-op-mul-bg active:bg-op-mul-bg/70 hover:bg-op-mul-bg/70 border border-op-mul-border/50 text-op-mul disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               計算実行
             </button>
             <button
               onClick={reset}
-              className="px-3 py-2 bg-gray-700 active:bg-gray-800 hover:bg-gray-600 rounded-lg text-sm touch-manipulation"
+              className="px-3 py-2 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded-lg text-sm touch-manipulation transition-colors duration-[var(--dur-fast)]"
             >
               他のアクションへ
             </button>
           </div>
           {calcValidationError && (
-            <p className="text-xs text-amber-400 bg-amber-950/40 border border-amber-700/50 rounded px-2 py-1">
+            <p className="text-xs text-warn bg-bg-mid border border-line-strong rounded px-2 py-1">
               ⚠ {calcErrorMessage(calcValidationError)}
             </p>
           )}
-          <p className="text-xs text-gray-500 text-center">
+          <p className="text-xs text-text-faint text-center">
             選択した順番で計算されます (例: 3 → + → 7)。1ターンに何度でも実行可能。
           </p>
         </div>
@@ -274,7 +274,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
       {/* 攻撃 */}
       {mode === 'attack' && (
         <div className="flex gap-2 justify-center items-center">
-          <span className="text-sm text-gray-400">数字を1つ選んで発射</span>
+          <span className="text-sm text-text-dim">数字を1つ選んで発射</span>
           <button
             onClick={() => {
               const idx = Array.from(selectedIndices)[0]
@@ -286,11 +286,11 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
               }
             }}
             disabled={selectedIndices.size !== 1}
-            className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors"
+            className="px-4 py-2 bg-p2-bg active:bg-p2-bg/70 hover:bg-p2-bg/70 border border-p2-border/50 text-p2 disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)]"
           >
             発射!
           </button>
-          <button onClick={reset} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
+          <button onClick={reset} className="px-3 py-2 bg-bg-elev hover:bg-bg-mid border border-line text-text-mid rounded-lg text-sm transition-colors duration-[var(--dur-fast)]">
             戻る
           </button>
         </div>
@@ -306,29 +306,29 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
           <div className="flex gap-2 justify-center items-center flex-wrap">
             <button
               onClick={addXToSequence}
-              className="px-3 py-2 bg-amber-700 hover:bg-amber-600 rounded-lg font-bold text-amber-200 transition-colors"
+              className="px-3 py-2 bg-op-sub-bg hover:bg-op-sub-bg/70 border border-op-sub-border/50 rounded-lg font-bold text-op-sub transition-colors duration-[var(--dur-fast)]"
             >
               x
             </button>
             <button
               onClick={removeLastFromSequence}
               disabled={functionSequence.length === 0}
-              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 rounded-lg text-sm transition-colors"
+              className="px-3 py-2 bg-bg-elev hover:bg-bg-mid disabled:bg-bg-deep disabled:text-text-mute border border-line text-text-mid rounded-lg text-sm transition-colors duration-[var(--dur-fast)]"
             >
               1つ戻す
             </button>
             <button
               onClick={submitFunction}
               disabled={!isFunctionValid()}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-bold transition-colors"
+              className="px-4 py-2 bg-op-add-bg hover:bg-op-add-bg/70 border border-op-add-border/50 text-op-add disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)]"
             >
               定義
             </button>
-            <button onClick={reset} className="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
+            <button onClick={reset} className="px-3 py-2 bg-bg-elev hover:bg-bg-mid border border-line text-text-mid rounded-lg text-sm transition-colors duration-[var(--dur-fast)]">
               戻る
             </button>
           </div>
-          <p className="text-xs text-gray-500 text-center">
+          <p className="text-xs text-text-faint text-center">
             手札のカードとxを交互に配置して関数を定義 (例: x×x+3)
           </p>
         </div>

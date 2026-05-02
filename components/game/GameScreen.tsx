@@ -8,7 +8,8 @@ import { ActionPanel } from './ActionPanel'
 import { OpponentInfo } from './OpponentInfo'
 import { TurnResult } from './TurnResult'
 import { ActionLog, type LogEntry } from './ActionLog'
-import { MAX_HAND_SIZE } from '@/lib/constants'
+import { LowHpVignette } from './LowHpVignette'
+import { MAX_HAND_SIZE, INITIAL_HP } from '@/lib/constants'
 
 interface GameScreenProps {
   gameState: ClientGameState
@@ -63,8 +64,8 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           <>
             <HpBar name={me.name} hp={me.hp} isMe />
             <div className="text-center">
-              <div className="text-xs text-gray-500">Turn {turn}</div>
-              <div className="text-sm font-bold text-yellow-400">{phaseLabel(phase)}</div>
+              <div className="text-xs text-text-faint mb-tabular">Turn {turn}</div>
+              <div className="text-sm font-bold text-warn">{phaseLabel(phase)}</div>
             </div>
             <HpBar name={opponent.name} hp={opponent.hp} isMe={false} />
           </>
@@ -72,8 +73,8 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           <>
             <HpBar name={opponent.name} hp={opponent.hp} isMe={false} />
             <div className="text-center">
-              <div className="text-xs text-gray-500">Turn {turn}</div>
-              <div className="text-sm font-bold text-yellow-400">{phaseLabel(phase)}</div>
+              <div className="text-xs text-text-faint mb-tabular">Turn {turn}</div>
+              <div className="text-sm font-bold text-warn">{phaseLabel(phase)}</div>
             </div>
             <HpBar name={me.name} hp={me.hp} isMe />
           </>
@@ -93,7 +94,7 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
         (phase === 'result' ||
           phase === 'resolving' ||
           Object.keys(turnResult.primeSynthesis ?? {}).length > 0) && (
-          <TurnResult turnResult={turnResult} />
+          <TurnResult turnResult={turnResult} meId={me.id} turn={turn} />
         )}
 
       {/* アクションパネル */}
@@ -109,23 +110,30 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
       </div>
 
       {/* 自分の情報 + ログボタン */}
-      <div className="w-full flex items-center justify-between gap-2 text-xs text-gray-500">
+      <div className="w-full flex items-center justify-between gap-2 text-xs text-text-faint mb-tabular">
         <span>
-          手札: <span className={me.hand.length >= MAX_HAND_SIZE ? 'text-red-400 font-bold' : ''}>{me.hand.length}/{MAX_HAND_SIZE}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
+          手札: <span className={me.hand.length >= MAX_HAND_SIZE ? 'text-error font-bold' : ''}>{me.hand.length}/{MAX_HAND_SIZE}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
         </span>
         <button
           onClick={() => setLogOpen(true)}
-          className="px-2 py-1 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs flex items-center gap-1"
+          className="px-2 py-1 rounded border border-line bg-bg-mid hover:bg-bg-elev text-text-mid text-xs flex items-center gap-1 transition-colors duration-[var(--dur-fast)]"
           aria-label="アクションログを開く"
         >
           📜 ログ
           {actionLog.length > 0 && (
-            <span className="text-[10px] text-gray-400">({actionLog.length})</span>
+            <span className="text-[10px] text-text-dim">({actionLog.length})</span>
           )}
         </button>
       </div>
 
       <ActionLog log={actionLog} open={logOpen} onClose={() => setLogOpen(false)} />
+
+      {/* 低 HP 警告ビネット (画面全体): HP 25% 以下で表示 */}
+      {me.hp > 0 && me.hp <= INITIAL_HP * 0.25 && (
+        <LowHpVignette
+          intensity={Math.max(0.3, 1 - me.hp / (INITIAL_HP * 0.25))}
+        />
+      )}
     </div>
   )
 }

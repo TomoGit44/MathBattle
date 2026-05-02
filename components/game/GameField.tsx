@@ -11,6 +11,11 @@ import { TrajectoryTrail } from './TrajectoryTrail'
 import { CurveDisplay } from './CurveDisplay'
 import { ItemDisplay } from './ItemDisplay'
 import { DetailTooltip, type DetailTarget } from './DetailTooltip'
+import { ScreenShake } from './ScreenShake'
+import { DamagePop } from './DamagePop'
+import { CollisionEquation } from './CollisionEquation'
+import { DamageFlash } from './DamageFlash'
+import { isHitStopped, flash } from '@/lib/effects'
 
 interface GameFieldProps {
   gameState: ClientGameState
@@ -20,22 +25,25 @@ export const GameField = ({ gameState }: GameFieldProps) => {
   const { me, opponent, bullets, curves, items, turnResult, fieldSize } = gameState
   const phase = gameState.phase
 
-  // アニメーション用: 現在表示中の弾一覧
+  // アニメーション用: 現在表示中の弾一覧と再生中の step index
   const [displayBullets, setDisplayBullets] = useState<Bullet[]>(bullets)
+  const [playbackStep, setPlaybackStep] = useState<number>(-1)
   const [isAnimating, setIsAnimating] = useState(false)
   const animFrameRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevTurnRef = useRef<number>(0)
 
-  // スナップショットアニメーション再生
+  // スナップショットアニメーション再生 (ヒットストップ対応)
   useEffect(() => {
     const snapshots = turnResult?.bulletSnapshots
     if (!snapshots || snapshots.length === 0) {
       setDisplayBullets(bullets)
+      setPlaybackStep(-1)
       return
     }
 
     if (phase !== 'result' && phase !== 'resolving' && phase !== 'gameover') {
       setDisplayBullets(bullets)
+      setPlaybackStep(-1)
       return
     }
 
@@ -50,8 +58,14 @@ export const GameField = ({ gameState }: GameFieldProps) => {
     let currentStep = 0
 
     const playStep = () => {
+      // ヒットストップ中は次のフレームに繰り越す (短時間の凍結)
+      if (isHitStopped()) {
+        animFrameRef.current = setTimeout(playStep, 30)
+        return
+      }
       if (currentStep < totalSteps) {
         setDisplayBullets(snapshots[currentStep].bullets)
+        setPlaybackStep(currentStep)
         currentStep++
         animFrameRef.current = setTimeout(playStep, stepDuration)
       } else {
@@ -68,6 +82,44 @@ export const GameField = ({ gameState }: GameFieldProps) => {
       }
     }
   }, [turnResult, bullets, phase, gameState.turn])
+
+  // 自分が被弾したら短く赤フラッシュ (TurnResult 側のシェイクと連動)
+  const myDamageThisTurn = turnResult?.damages?.[me.id] ?? 0
+  const lastFlashTurnRef = useRef<number>(0)
+  useEffect(() => {
+    if (
+      myDamageThisTurn > 0 &&
+      gameState.turn !== lastFlashTurnRef.current &&
+      (phase === 'result' || phase === 'resolving')
+    ) {
+      lastFlashTurnRef.current = gameState.turn
+      // mix-blend-mode: screen を想定した淡めの色
+      flash('rgba(248, 113, 113, 0.35)', 380)
+    }
+  }, [myDamageThisTurn, gameState.turn, phase])
+
+  // 曲線ダメージパルス: 直近ターンで被害を受けたプレイヤーの「敵が所有するカーブ」だけ
+  // 一定時間 pulse=true を立てる。
+  const [pulseTurn, setPulseTurn] = useState<number>(-1)
+  useEffect(() => {
+    if (
+      turnResult &&
+      Object.keys(turnResult.curveDamages ?? {}).length > 0 &&
+      (phase === 'result' || phase === 'resolving') &&
+      gameState.turn !== pulseTurn
+    ) {
+      setPulseTurn(gameState.turn)
+      const t = setTimeout(() => setPulseTurn(-1), 620)
+      return () => clearTimeout(t)
+    }
+  }, [turnResult, phase, gameState.turn, pulseTurn])
+
+  const damagedIds = new Set(
+    Object.entries(turnResult?.curveDamages ?? {})
+      .filter(([, dmg]) => dmg > 0)
+      .map(([id]) => id),
+  )
+  const isPulseActive = pulseTurn === gameState.turn && damagedIds.size > 0
 
   // actionフェーズに戻った時に弾をリセット
   useEffect(() => {
@@ -157,63 +209,94 @@ export const GameField = ({ gameState }: GameFieldProps) => {
     }
   }, [bullets, items, curves, detail])
 
+  // グリッド/軸/原点マーカー: useMemo で settings 変化時のみ再計算
+  const fieldGrid = useMemo(() => {
+    const { mathXMax, mathYMax } = settings
+    const verticals: number[] = []
+    for (let v = GRID_SPACING_X; v <= mathXMax + 1e-9; v += GRID_SPACING_X) {
+      verticals.push(v, -v)
+    }
+    const horizontals: number[] = []
+    for (let v = GRID_SPACING_Y; v <= mathYMax + 1e-9; v += GRID_SPACING_Y) {
+      horizontals.push(v, -v)
+    }
+    const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
+    return { mathXMax, mathYMax, verticals, horizontals, fmt }
+  }, [settings])
+
   return (
+    <ScreenShake className="w-full">
     <div
       ref={fieldRootRef}
-      className="relative w-full aspect-[2/1] bg-gray-800 border-2 border-gray-600 rounded-lg overflow-hidden"
+      className="relative w-full aspect-[2/1] bg-bg-mid border-2 border-line-strong rounded-lg overflow-hidden"
+      style={{
+        boxShadow:
+          'inset 0 0 0 1px var(--color-line-soft), inset 0 0 60px rgba(56, 189, 248, 0.04)',
+      }}
       onClick={() => setDetail(null)}
     >
-      {/* グリッド線: x軸・y軸 (原点) を基準に GRID_SPACING_X / GRID_SPACING_Y ごとに描画 */}
-      <div className="absolute inset-0 opacity-10">
-        {(() => {
-          const { mathXMax, mathYMax } = settings
-          const verticals: number[] = []
-          for (let v = GRID_SPACING_X; v <= mathXMax + 1e-9; v += GRID_SPACING_X) {
-            verticals.push(v, -v)
-          }
-          const horizontals: number[] = []
-          for (let v = GRID_SPACING_Y; v <= mathYMax + 1e-9; v += GRID_SPACING_Y) {
-            horizontals.push(v, -v)
-          }
-          return (
-            <>
-              {verticals.map((v, i) => (
-                <div
-                  key={`v-${i}`}
-                  className="absolute top-0 bottom-0 w-px bg-gray-400"
-                  style={{ left: `${((v + mathXMax) / (2 * mathXMax)) * 100}%` }}
-                />
-              ))}
-              {horizontals.map((v, i) => (
-                <div
-                  key={`h-${i}`}
-                  className="absolute left-0 right-0 h-px bg-gray-400"
-                  style={{ top: `${((mathYMax - v) / (2 * mathYMax)) * 100}%` }}
-                />
-              ))}
-            </>
-          )
-        })()}
+      {/* 背景: わずかな radial で原点を視覚的に主役化 (transform/opacity に該当しないが静的なので OK) */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, rgba(56,189,248,0.08) 0%, transparent 65%)',
+        }}
+      />
+
+      {/* グリッド線 (細格子): TRON 風主役化、cyan 微発光 */}
+      <div className="absolute inset-0 pointer-events-none">
+        {fieldGrid.verticals.map((v, i) => (
+          <div
+            key={`v-${i}`}
+            className="absolute top-0 bottom-0 w-px bg-grid-minor"
+            style={{ left: `${((v + fieldGrid.mathXMax) / (2 * fieldGrid.mathXMax)) * 100}%` }}
+          />
+        ))}
+        {fieldGrid.horizontals.map((v, i) => (
+          <div
+            key={`h-${i}`}
+            className="absolute left-0 right-0 h-px bg-grid-minor"
+            style={{ top: `${((fieldGrid.mathYMax - v) / (2 * fieldGrid.mathYMax)) * 100}%` }}
+          />
+        ))}
       </div>
 
-      {/* 直交座標軸 */}
+      {/* 直交座標軸: 視覚言語の中心 */}
       <div className="absolute inset-0 pointer-events-none">
-        {/* x軸 (y=0 → top:50%) */}
-        <div className="absolute left-0 right-0 h-px bg-white/20" style={{ top: '50%' }} />
-        {/* y軸 (x=0 → left:50%) */}
-        <div className="absolute top-0 bottom-0 w-px bg-white/20" style={{ left: '50%' }} />
-        {/* x軸の目盛りラベル: -mathXMax, -mathXMax/2, 0, mathXMax/2, mathXMax */}
+        {/* x 軸 */}
+        <div
+          className="absolute left-0 right-0 h-px bg-axis"
+          style={{ top: '50%', boxShadow: '0 0 6px var(--color-axis)' }}
+        />
+        {/* y 軸 */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-axis"
+          style={{ left: '50%', boxShadow: '0 0 6px var(--color-axis)' }}
+        />
+        {/* 原点マーカー (cyan の点 + 微弱グロー) */}
+        <div
+          className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{
+            left: '50%',
+            top: '50%',
+            width: '6px',
+            height: '6px',
+            background: 'var(--color-axis-origin)',
+            boxShadow: '0 0 8px var(--color-axis-origin), 0 0 16px var(--color-axis-origin)',
+          }}
+        />
+        {/* 目盛りラベル */}
         {(() => {
-          const { mathXMax, mathYMax } = settings
+          const { mathXMax, mathYMax, fmt } = fieldGrid
           const xTicks = [-mathXMax, -mathXMax / 2, 0, mathXMax / 2, mathXMax]
           const yTicks = [-mathYMax, 0, mathYMax]
-          const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
           return (
             <>
               {xTicks.map((v, i) => (
                 <span
                   key={`x-${i}`}
-                  className="absolute text-[8px] text-white/30 -translate-x-1/2"
+                  className="absolute text-[8px] text-text-faint -translate-x-1/2 mb-tabular"
                   style={{ left: `${((v + mathXMax) / (2 * mathXMax)) * 100}%`, top: '51%' }}
                 >
                   {fmt(v)}
@@ -222,7 +305,7 @@ export const GameField = ({ gameState }: GameFieldProps) => {
               {yTicks.map((v, i) => (
                 <span
                   key={`y-${i}`}
-                  className="absolute text-[8px] text-white/30 -translate-y-1/2"
+                  className="absolute text-[8px] text-text-faint -translate-y-1/2 mb-tabular"
                   style={{ left: '51%', top: `${((mathYMax - v) / (2 * mathYMax)) * 100}%` }}
                 >
                   {v !== 0 ? fmt(v) : ''}
@@ -233,7 +316,7 @@ export const GameField = ({ gameState }: GameFieldProps) => {
         })()}
       </div>
 
-      {/* 関数カーブ */}
+      {/* 関数カーブ: ダメージを与えたカーブ (= 被害者の敵が所有) を pulse */}
       {curves.map((curve) => (
         <CurveDisplay
           key={curve.id}
@@ -241,6 +324,7 @@ export const GameField = ({ gameState }: GameFieldProps) => {
           isOwn={curve.owner === me.id}
           settings={settings}
           onClick={isAction ? handleCurveClick : undefined}
+          pulse={isPulseActive && !damagedIds.has(curve.owner)}
         />
       ))}
 
@@ -306,10 +390,37 @@ export const GameField = ({ gameState }: GameFieldProps) => {
 
       {/* アニメーション中インジケーター */}
       {isAnimating && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 rounded text-xs text-yellow-300">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-bg-overlay border border-line-soft px-3 py-1 rounded text-xs text-warn">
           解決中...
         </div>
       )}
+
+      {/* 衝突点の式空中表示 (resolving / result 中のみ意味がある) */}
+      {turnResult?.bulletSnapshots && turnResult.bulletSnapshots.length > 0 && (
+        <CollisionEquation
+          snapshots={turnResult.bulletSnapshots}
+          step={playbackStep}
+          fieldSize={fieldSize}
+        />
+      )}
+
+      {/* 被弾ダメージ数値ポップアップ (自分・相手それぞれ) */}
+      <DamagePop
+        totalDamage={turnResult?.damages?.[me.id] ?? 0}
+        position={me.position}
+        fieldSize={fieldSize}
+        isMe
+      />
+      <DamagePop
+        totalDamage={turnResult?.damages?.[opponent.id] ?? 0}
+        position={opponent.position}
+        fieldSize={fieldSize}
+        isMe={false}
+      />
+
+      {/* 全画面フラッシュ (自分被弾時) */}
+      <DamageFlash />
     </div>
+    </ScreenShake>
   )
 }

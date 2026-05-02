@@ -1,34 +1,123 @@
 @import "tailwindcss";
+@import "../src/styles/tokens.css";
+
+/*
+ * Tailwind v4 @theme inline:
+ * tokens.css で定義した CSS 変数を Tailwind ユーティリティに昇格する。
+ * これで `bg-bg-deep`, `text-p1`, `border-p2`, `text-prime`, `bg-op-add` 等が使える。
+ * 値は inline で同名 var を参照するので、:root の :hover 上書きや
+ * prefers-reduced-motion でのオーバーライドがそのまま反映される。
+ */
+@theme inline {
+  /* 背景・パネル */
+  --color-bg-deep:    var(--color-bg-deep);
+  --color-bg-mid:     var(--color-bg-mid);
+  --color-bg-elev:    var(--color-bg-elev);
+  --color-bg-panel:   var(--color-bg-panel);
+  --color-bg-overlay: var(--color-bg-overlay);
+
+  /* グリッド */
+  --color-grid-minor:  var(--color-grid-minor);
+  --color-grid-major:  var(--color-grid-major);
+  --color-axis:        var(--color-axis);
+  --color-axis-origin: var(--color-axis-origin);
+
+  /* プレイヤー1 */
+  --color-p1:        var(--color-p1);
+  --color-p1-deep:   var(--color-p1-deep);
+  --color-p1-bg:     var(--color-p1-bg);
+  --color-p1-border: var(--color-p1-border);
+
+  /* プレイヤー2 */
+  --color-p2:        var(--color-p2);
+  --color-p2-deep:   var(--color-p2-deep);
+  --color-p2-bg:     var(--color-p2-bg);
+  --color-p2-border: var(--color-p2-border);
+
+  /* 素数 */
+  --color-prime:        var(--color-prime);
+  --color-prime-edge:   var(--color-prime-edge);
+  --color-prime-deep:   var(--color-prime-deep);
+  --color-prime-bg:     var(--color-prime-bg);
+  --color-prime-text:   var(--color-prime-text);
+
+  /* 関数カーブ */
+  --color-curve-own: var(--color-curve-own);
+  --color-curve-foe: var(--color-curve-foe);
+
+  /* HP */
+  --color-hp-full:  var(--color-hp-full);
+  --color-hp-warn:  var(--color-hp-warn);
+  --color-hp-low:   var(--color-hp-low);
+  --color-hp-track: var(--color-hp-track);
+
+  /* テキスト */
+  --color-text:       var(--color-text);
+  --color-text-mid:   var(--color-text-mid);
+  --color-text-dim:   var(--color-text-dim);
+  --color-text-faint: var(--color-text-faint);
+  --color-text-mute:  var(--color-text-mute);
+  --color-warn:       var(--color-warn);
+  --color-error:      var(--color-error);
+  --color-success:    var(--color-success);
+
+  /* 演算子 */
+  --color-op-add:        var(--color-op-add);
+  --color-op-add-bg:     var(--color-op-add-bg);
+  --color-op-add-border: var(--color-op-add-border);
+  --color-op-sub:        var(--color-op-sub);
+  --color-op-sub-bg:     var(--color-op-sub-bg);
+  --color-op-sub-border: var(--color-op-sub-border);
+  --color-op-mul:        var(--color-op-mul);
+  --color-op-mul-bg:     var(--color-op-mul-bg);
+  --color-op-mul-border: var(--color-op-mul-border);
+  --color-op-div:        var(--color-op-div);
+  --color-op-div-bg:     var(--color-op-div-bg);
+  --color-op-div-border: var(--color-op-div-border);
+
+  /* 中立 */
+  --color-line:        var(--color-line);
+  --color-line-soft:   var(--color-line-soft);
+  --color-line-strong: var(--color-line-strong);
+}
 
 /* スマホ最適化 */
 html {
-  /* iOS Safari でのダブルタップ拡大を防止 */
   touch-action: manipulation;
-  /* iOSのバウンス防止 */
   -webkit-text-size-adjust: 100%;
 }
 
 body {
-  /* テキスト選択をUI操作で誤発生させない */
+  background: var(--color-bg-deep);
+  color: var(--color-text);
   -webkit-user-select: none;
   user-select: none;
-  /* iOSのタップ時ハイライト除去 */
   -webkit-tap-highlight-color: transparent;
-  /* スマホでのスクロールバウンス防止 */
   overscroll-behavior: none;
 }
 
-/* 入力欄だけは選択を許可 */
 input,
 textarea {
   -webkit-user-select: text;
   user-select: text;
 }
 
-/* セーフエリア (iPhoneのノッチ等) */
 @supports (padding: max(0px)) {
   body {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
+}
+
+/* タビュラー数字 (桁ガタつき防止) — フォント自体は変えず、機能のみ有効化 */
+.mb-tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* フォーカス可視化 (キーボード操作) */
+:where(button, a, input, [role="button"]):focus-visible {
+  outline: 2px solid var(--color-axis-origin);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

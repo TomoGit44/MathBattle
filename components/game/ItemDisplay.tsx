@@ -7,13 +7,13 @@ interface ItemDisplayProps {
   onClick?: (item: FieldItem, e: MouseEvent) => void
 }
 
-// 演算子別カラーリング
+// 演算子別カラーリング (token 経由)
 const colorOf = (kind: FieldItem['kind']): string => {
   switch (kind) {
-    case '+': return 'bg-green-900/80 border-green-400 text-green-200'
-    case '-': return 'bg-orange-900/80 border-orange-400 text-orange-200'
-    case '×': return 'bg-purple-900/80 border-purple-400 text-purple-200'
-    case '÷': return 'bg-pink-900/80 border-pink-400 text-pink-200'
+    case '+': return 'bg-op-add-bg/80 border-op-add-border text-op-add'
+    case '-': return 'bg-op-sub-bg/80 border-op-sub-border text-op-sub'
+    case '×': return 'bg-op-mul-bg/80 border-op-mul-border text-op-mul'
+    case '÷': return 'bg-op-div-bg/80 border-op-div-border text-op-div'
   }
 }
 
@@ -42,14 +42,14 @@ export const ItemDisplay = ({ item, fieldSize, onClick }: ItemDisplayProps) => {
         {item.kind}
       </div>
       {/* HP バー (上部に重ねる) */}
-      <div className="absolute -top-2 left-0 right-0 h-1 bg-gray-800/80 rounded overflow-hidden">
+      <div className="absolute -top-2 left-0 right-0 h-1 bg-bg-mid/80 rounded overflow-hidden border border-line-soft">
         <div
-          className="h-full bg-yellow-400 transition-all"
+          className="h-full bg-warn transition-[width] duration-[var(--dur-fast)]"
           style={{ width: `${hpPct}%` }}
         />
       </div>
       {/* HP 数値 (右下) */}
-      <div className="absolute -bottom-3 right-0 text-[9px] text-yellow-300 leading-none bg-black/60 px-1 rounded">
+      <div className="absolute -bottom-3 right-0 text-[9px] text-warn leading-none bg-bg-overlay px-1 rounded mb-tabular">
         {item.hp}
       </div>
     </div>

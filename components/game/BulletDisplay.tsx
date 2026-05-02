@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import type { Bullet } from '@/lib/types'
 import { isPrimeBullet } from '@/lib/prime'
+import { PrimeAura } from './PrimeAura'
 
 interface BulletDisplayProps {
   bullet: Bullet
@@ -10,25 +11,56 @@ interface BulletDisplayProps {
   onClick?: (bullet: Bullet, e: MouseEvent) => void
 }
 
-export const BulletDisplay = ({ bullet, isOwn, bulletRadius, fieldSize, onClick }: BulletDisplayProps) => {
+/**
+ * 弾の見た目: 値が大きいほど「重い」スプライト感を与える。
+ *   - サイズ: ベース 100% から最大 +30% (clamp)
+ *   - グロー: blur と spread が値とともに強くなる
+ *   - 数字: ネオン LED 風 text-shadow (フォントは現行維持・tabular-nums のみ)
+ *
+ * 素数弾は別軸: violet + ガラス白の PrimeAura を被せる。
+ */
+export const BulletDisplay = ({
+  bullet,
+  isOwn,
+  bulletRadius,
+  fieldSize,
+  onClick,
+}: BulletDisplayProps) => {
   const left = (bullet.position.x / fieldSize.width) * 100
   const top = (bullet.position.y / fieldSize.height) * 100
-  // 当たり判定 (円・半径 bulletRadius) と一致させる
-  const widthPct = ((bulletRadius * 2) / fieldSize.width) * 100
-  const heightPct = ((bulletRadius * 2) / fieldSize.height) * 100
+
+  // 値による「重み」スケール (1.0 〜 1.30) — 値 30 でほぼ最大に
+  const absVal = Math.abs(bullet.value)
+  const weight = Math.min(absVal / 30, 1)
+  const sizeMult = 1 + weight * 0.3
+  const widthPct = ((bulletRadius * 2 * sizeMult) / fieldSize.width) * 100
+  const heightPct = ((bulletRadius * 2 * sizeMult) / fieldSize.height) * 100
 
   const isPrime = isPrimeBullet(bullet.value)
 
-  // 素数弾は紫〜青の素数カラーで上書き、通常弾は所有者カラー
+  // 素数弾は violet + ガラス白 (AI-slop fuchsia グラデから脱出)
+  // 通常弾は所有者カラー (p1=sky / p2=rose)
   const color = isPrime
-    ? 'bg-fuchsia-900 border-fuchsia-300 text-fuchsia-100'
+    ? 'bg-prime-bg border-prime-edge text-prime-text'
     : isOwn
-    ? 'bg-blue-900 border-blue-400 text-blue-300'
-    : 'bg-red-900 border-red-400 text-red-300'
+    ? 'bg-p1-bg border-p1-border text-p1'
+    : 'bg-p2-bg border-p2-border text-p2'
+
+  // グロー強度: 値が大きいほど光が広がる (transform/opacity 以外だが、box-shadow は
+  // GPU レイヤを破壊しないため許容)
+  const glowColor = isPrime
+    ? 'var(--color-prime-edge)'
+    : isOwn
+    ? 'var(--color-p1)'
+    : 'var(--color-p2)'
+  const glowSize = 6 + weight * 14
+  const glowSpread = weight * 4
 
   return (
     <div
-      className={`absolute -translate-x-1/2 -translate-y-1/2 ${onClick ? 'cursor-pointer' : ''}`}
+      className={`absolute -translate-x-1/2 -translate-y-1/2 ${
+        onClick ? 'cursor-pointer' : ''
+      }`}
       style={{
         left: `${left}%`,
         top: `${top}%`,
@@ -37,18 +69,20 @@ export const BulletDisplay = ({ bullet, isOwn, bulletRadius, fieldSize, onClick 
       }}
       onClick={onClick ? (e) => onClick(bullet, e) : undefined}
     >
-      {isPrime && (
-        <>
-          {/* 素数オーラ: 持続的なグロー (HandDisplay と同テイスト) */}
-          <span className="pointer-events-none absolute -inset-[60%] rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-400 to-blue-500 opacity-60 blur-md animate-pulse" />
-          {/* 回転する外輪 */}
-          <span className="pointer-events-none absolute -inset-[20%] rounded-full ring-2 ring-fuchsia-300/70 animate-[spin_4s_linear_infinite]" />
-        </>
-      )}
+      {isPrime && <PrimeAura shape="circle" />}
       <div
-        className={`relative w-full h-full ${color} border rounded-full flex items-center justify-center text-[10px] font-bold ${
-          isPrime ? 'shadow-[0_0_12px_rgba(217,70,239,0.9)]' : ''
-        }`}
+        className={`relative w-full h-full ${color} border rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-bold mb-tabular`}
+        style={{
+          boxShadow: isPrime
+            ? 'var(--shadow-prime)'
+            : `0 0 ${glowSize.toFixed(1)}px ${glowSpread.toFixed(
+                1,
+              )}px ${glowColor}`,
+          // ネオン LED 風: 数字を currentColor の弱グローで縁取り。
+          textShadow: isPrime
+            ? '0 0 4px var(--color-prime-edge), 0 0 10px var(--color-prime-edge)'
+            : `0 0 4px ${glowColor}, 0 0 8px ${glowColor}`,
+        }}
       >
         {bullet.value}
       </div>
