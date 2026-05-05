@@ -1,10 +1,11 @@
-import type { Bullet, FunctionCurve, FieldItem } from '@/lib/types'
+import type { Bullet, FunctionCurve, FieldItem, GameSettings } from '@/lib/types'
 import { isPrimeBullet } from '@/lib/prime'
 import {
   BASE_BULLET_SPEED,
   SPEED_DECAY_FACTOR,
   MAX_REFLECTIONS,
   FUNCTION_DAMAGE,
+  FIELD_WIDTH,
 } from '@/lib/constants'
 
 export type DetailTarget =
@@ -15,6 +16,7 @@ export type DetailTarget =
 interface DetailTooltipProps {
   target: DetailTarget
   anchor: { leftPct: number; topPct: number }
+  settings: GameSettings
   onClose: () => void
 }
 
@@ -27,7 +29,7 @@ const speedQualitative = (value: number): string => {
   return '遅い'
 }
 
-export const DetailTooltip = ({ target, anchor, onClose }: DetailTooltipProps) => {
+export const DetailTooltip = ({ target, anchor, settings, onClose }: DetailTooltipProps) => {
   // 縦方向: アンカーが下半分なら上に出す、上半分なら下に出す
   const placeAbove = anchor.topPct > 50
   // 横方向: 左端/右端でクランプ (ツールチップ中心をアンカー中心に合わせるが端で押し戻す)
@@ -54,16 +56,17 @@ export const DetailTooltip = ({ target, anchor, onClose }: DetailTooltipProps) =
         ×
       </button>
 
-      {target.kind === 'bullet' && <BulletDetail bullet={target.data} isOwn={target.isOwn} />}
+      {target.kind === 'bullet' && <BulletDetail bullet={target.data} isOwn={target.isOwn} settings={settings} />}
       {target.kind === 'curve' && <CurveDetail curve={target.data} isOwn={target.isOwn} />}
-      {target.kind === 'item' && <ItemDetail item={target.data} />}
+      {target.kind === 'item' && <ItemDetail item={target.data} settings={settings} />}
     </div>
   )
 }
 
-const BulletDetail = ({ bullet, isOwn }: { bullet: Bullet; isOwn: boolean }) => {
+const BulletDetail = ({ bullet, isOwn, settings }: { bullet: Bullet; isOwn: boolean; settings: GameSettings }) => {
   const isPrime = isPrimeBullet(bullet.value)
-  const speed = calcBulletSpeed(bullet.value)
+  const speedPx = calcBulletSpeed(bullet.value)
+  const speedMath = speedPx * ((2 * settings.mathXMax) / FIELD_WIDTH)
   const qual = speedQualitative(bullet.value)
 
   return (
@@ -82,8 +85,8 @@ const BulletDetail = ({ bullet, isOwn }: { bullet: Bullet; isOwn: boolean }) => 
       </div>
       <div>
         速度:{' '}
-        <span className="font-bold">{speed.toFixed(1)}</span>
-        <span className="text-text-dim"> px/tick</span>
+        <span className="font-bold">{speedMath.toFixed(2)}</span>
+        <span className="text-text-dim"> /tick</span>
         <span className="text-text-mid"> ({qual})</span>
       </div>
       <div>
@@ -120,7 +123,7 @@ const CurveDetail = ({ curve, isOwn }: { curve: FunctionCurve; isOwn: boolean })
   )
 }
 
-const ItemDetail = ({ item }: { item: FieldItem }) => {
+const ItemDetail = ({ item, settings }: { item: FieldItem; settings: GameSettings }) => {
   const hpPct = Math.max(0, Math.min(100, (item.hp / item.maxHp) * 100))
   const operatorLabel: Record<string, string> = {
     '+': '加算 (+)',
@@ -128,10 +131,19 @@ const ItemDetail = ({ item }: { item: FieldItem }) => {
     '×': '乗算 (×)',
     '÷': '除算 (÷)',
   }
+  const isPack = item.kind === 'pack'
+  const isHeal = item.kind === 'heal'
+  const titleLabel = isPack ? '演算子パック' : isHeal ? '回復アイテム' : `アイテム「${item.kind}」`
+  const rewardLabel = isPack
+    ? '4種すべての演算子カード (+, -, ×, ÷)'
+    : isHeal
+      ? `HP を回復 (${settings.healAmountMin}〜${settings.healAmountMax})`
+      : `「${operatorLabel[item.kind] ?? item.kind}」演算子カード`
+  const titleColor = isHeal ? 'text-success' : isPack ? 'text-warn' : 'text-success'
   return (
     <div className="space-y-1 pr-2">
       <div className="font-bold text-sm border-b border-line-soft pb-1 mb-1">
-        <span className="text-success">アイテム「{item.kind}」</span>
+        <span className={titleColor}>{titleLabel}</span>
       </div>
       <div className="mb-tabular">
         HP: <span className="font-bold text-warn">{item.hp}</span>
@@ -143,9 +155,22 @@ const ItemDetail = ({ item }: { item: FieldItem }) => {
           style={{ width: `${hpPct}%` }}
         />
       </div>
-      <div className="text-[10px] text-success leading-tight">
-        破壊で「{operatorLabel[item.kind] ?? item.kind}」演算子カードをゲット
+      <div className={`text-[10px] leading-tight ${titleColor}`}>
+        破壊で{rewardLabel}をゲット
       </div>
+      <div className={`text-[10px] leading-tight ${titleColor}`}>
+        触れても{rewardLabel}をゲット
+      </div>
+      {isPack && (
+        <div className="text-[10px] text-text-dim leading-tight">
+          ※ 手札の空きが足りない場合は入る分だけ獲得
+        </div>
+      )}
+      {isHeal && (
+        <div className="text-[10px] text-text-dim leading-tight">
+          ※ HP が満タンの場合は獲得できない (アイテムは残る)
+        </div>
+      )}
     </div>
   )
 }

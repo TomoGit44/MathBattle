@@ -105,7 +105,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           onSubmit={sendAction}
           disabled={phase !== 'action'}
           functionUsesRemaining={me.functionUsesRemaining}
-          hasMoved={me.hasMovedThisTurn}
         />
       </div>
 

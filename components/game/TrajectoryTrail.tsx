@@ -88,7 +88,7 @@ export const TrajectoryTrail = ({
           animation: 'mb-traj-marker 1.6s var(--ease-in-out) infinite',
         }}
       >
-        {finalValue}
+        {Number.isFinite(finalValue) ? finalValue : '∞'}
       </div>
     </>
   )

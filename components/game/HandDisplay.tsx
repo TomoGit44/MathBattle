@@ -10,11 +10,15 @@ interface HandDisplayProps {
   disabledIndices?: Set<number>
 }
 
+const dirArrow = (d: 'up' | 'down' | 'left' | 'right'): string =>
+  ({ up: '↑', down: '↓', left: '←', right: '→' }[d])
+
 const getLabel = (item: HandItem): string => {
   switch (item.type) {
-    case 'number': return String(item.value)
+    case 'number': return Number.isFinite(item.value) ? String(item.value) : '∞'
     case 'operator': return item.operator
-    case 'token': return String(item.value)
+    case 'token': return Number.isFinite(item.value) ? String(item.value) : '∞'
+    case 'move': return dirArrow(item.direction)
   }
 }
 
@@ -37,6 +41,8 @@ const getStyle = (item: HandItem, selected: boolean): string => {
       return `${base} border-op-mul-border bg-op-mul-bg text-op-mul hover:border-op-mul hover:shadow-[0_6px_14px_-6px_rgba(192,132,252,0.5)]`
     case 'token':
       return `${base} border-success bg-op-add-bg text-op-add hover:border-op-add hover:shadow-[0_6px_14px_-6px_rgba(74,222,128,0.5)]`
+    case 'move':
+      return `${base} border-axis-origin/50 bg-bg-elev text-axis-origin text-2xl hover:border-axis-origin hover:shadow-[0_6px_14px_-6px_rgba(103,232,249,0.5)]`
   }
 }
 
@@ -47,6 +53,8 @@ export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disab
         const isDisabled = !selectable || disabledIndices?.has(index)
         const isPrime =
           (item.type === 'token' || item.type === 'number') && isPrimeBullet(item.value)
+        const isInfinity =
+          (item.type === 'token' || item.type === 'number') && !Number.isFinite(item.value)
         return (
           <div
             key={index}
@@ -58,8 +66,18 @@ export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disab
           >
             {isPrime && <PrimeAura shape="rounded" />}
             <button
-              className={`relative ${getStyle(item, selectedIndices.has(index))} ${isDisabled ? 'opacity-40' : ''}`}
-              style={isPrime ? { boxShadow: 'var(--shadow-prime)' } : undefined}
+              className={`relative ${getStyle(item, selectedIndices.has(index))} ${isDisabled ? 'opacity-40' : ''} ${
+                isInfinity
+                  ? 'border-warn !text-warn !bg-bg-deep [text-shadow:0_0_10px_var(--color-warn),0_0_22px_var(--color-warn)]'
+                  : ''
+              }`}
+              style={
+                isPrime
+                  ? { boxShadow: 'var(--shadow-prime)' }
+                  : isInfinity
+                  ? { boxShadow: '0 0 14px 2px var(--color-warn), inset 0 0 10px rgba(0,0,0,0.6)' }
+                  : undefined
+              }
               onClick={() => !isDisabled && onToggle(index)}
               disabled={!!isDisabled}
             >

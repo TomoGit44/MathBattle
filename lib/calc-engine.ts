@@ -22,8 +22,8 @@ export type CalcError =
   | 'bad_index'      // 範囲外/NaN/非整数のインデックス
   | 'duplicate'      // 重複インデックス
   | 'pattern'        // 数字-演算子-数字 の交互でない
-  | 'div_zero'       // 0除算
-  | 'invalid'        // その他 (NaN/Infinity 等)
+  | 'has_infinity'   // 無限カードは計算に使えない
+  | 'invalid'        // その他 (NaN等)
 
 export const validateCalculation = (
   hand: HandItem[],
@@ -49,7 +49,9 @@ export const validateCalculation = (
   for (let i = 0; i < cardIndices.length; i++) {
     const item = hand[cardIndices[i]]
     if (i % 2 === 0) {
-      if (getNumericValue(item) === null) return 'pattern'
+      const v = getNumericValue(item)
+      if (v === null) return 'pattern'
+      if (!Number.isFinite(v)) return 'has_infinity'
     } else {
       if (getOperator(item) === null) return 'pattern'
     }
@@ -87,7 +89,8 @@ export const evaluateCalculation = (items: HandItem[]): number | null => {
       if (op === '×') {
         v = a * b
       } else {
-        if (b === 0) return null
+        // 0除算 → 無限大トークンを生成 (この時点で評価を打ち切り Infinity を返す)
+        if (b === 0) return Infinity
         v = a / b
       }
       values.splice(i, 2, v)
@@ -107,7 +110,8 @@ export const evaluateCalculation = (items: HandItem[]): number | null => {
     else return null
   }
 
-  if (!Number.isFinite(result)) return null
+  if (Number.isNaN(result)) return null
+  if (!Number.isFinite(result)) return result
   return Math.round(result * 100) / 100
 }
 
@@ -133,11 +137,7 @@ export const tryApplyCalculation = (
     const selectedItems = cardIndices.map((i) => hand[i])
     const result = evaluateCalculation(selectedItems)
     if (result === null) {
-      // 0除算かそれ以外か
-      const hasDivByZero = selectedItems.some(
-        (it, i) => it?.type === 'operator' && it.operator === '÷' && getNumericValue(selectedItems[i + 1]) === 0
-      )
-      return { ok: false, reason: hasDivByZero ? 'div_zero' : 'invalid' }
+      return { ok: false, reason: 'invalid' }
     }
 
     const newHand = hand.filter((_, i) => !cardIndices.includes(i))
@@ -172,8 +172,8 @@ export const calcErrorMessage = (err: CalcError): string => {
       return '同じカードを複数選んでいます'
     case 'pattern':
       return '数字 → 演算 → 数字 の順で並べてください'
-    case 'div_zero':
-      return '0で割ることはできません'
+    case 'has_infinity':
+      return '無限 (∞) は計算に使えません'
     case 'invalid':
       return '計算式が不正です'
   }

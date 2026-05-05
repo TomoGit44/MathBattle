@@ -3,12 +3,15 @@ import {
   BASE_BULLET_SPEED,
   SPEED_DECAY_FACTOR,
   MAX_REFLECTIONS,
+  PLAYER_SIZE,
+  BULLET_SIZE,
 } from './constants'
 import { isPrimeBullet } from './prime'
 
 let bulletIdCounter = 0
 
 const calcSpeed = (value: number): number => {
+  if (!Number.isFinite(value)) return 0
   return BASE_BULLET_SPEED / (1 + Math.abs(value) * SPEED_DECAY_FACTOR)
 }
 
@@ -18,6 +21,21 @@ export const createBullet = (
   facing: 'left' | 'right',
   value: number
 ): Bullet => {
+  // 無限弾は静止 (速度0)。プレイヤーの目の前にスポーンさせるため
+  // 自分とほぼ接した位置 (player半径 + bullet半径 + 余白) に配置する。
+  if (!Number.isFinite(value)) {
+    const offset = PLAYER_SIZE + BULLET_SIZE + 4
+    const dir = facing === 'right' ? 1 : -1
+    return {
+      id: `bullet-${Date.now()}-${bulletIdCounter++}`,
+      owner,
+      value,
+      position: { x: position.x + dir * offset, y: position.y },
+      velocity: { dx: 0, dy: 0 },
+      reflections: 0,
+    }
+  }
+
   const speed = calcSpeed(value)
   const dx = facing === 'right' ? speed : -speed
   return {
@@ -197,8 +215,29 @@ export const checkBulletCollisions = (
       // pre→post の線分同士で連続衝突判定
       if (!sweptCirclesOverlap(aPrev, a.position, bPrev, b.position, collisionDist)) continue
 
+      const aInf = !Number.isFinite(a.value)
+      const bInf = !Number.isFinite(b.value)
       const aPrime = isPrimeBullet(a.value)
       const bPrime = isPrimeBullet(b.value)
+
+      // 無限弾の特殊扱い: 素数弾とはすり抜け、それ以外の敵弾は無限ダメージで消滅させる。
+      // 無限弾自身はそのまま残る (静止し続ける)。
+      if (aInf || bInf) {
+        if (aInf && bInf) {
+          // 無限同士はすり抜け
+          continue
+        }
+        if (aInf && bPrime) continue
+        if (bInf && aPrime) continue
+        if (aInf) {
+          // bは非素数の通常弾 → 消滅
+          alive.delete(j)
+        } else {
+          // bが無限 → aが消滅
+          alive.delete(i)
+        }
+        continue
+      }
 
       if (aPrime && bPrime) {
         // 素数弾同士はすり抜ける (何も起きない)

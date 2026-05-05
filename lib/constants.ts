@@ -1,4 +1,4 @@
-import type { Card } from './types'
+import type { Card, ItemKind } from './types'
 
 // フィールド
 export const FIELD_WIDTH = 800
@@ -21,6 +21,13 @@ export const DRAW_COUNT = 2
 export const MAX_HAND_SIZE = 16
 export const MAX_CALC_CARDS = 5
 export const NUMBER_REPLENISH_THRESHOLD = 3
+// 移動カードの自動補充: ターン開始時、各方向ごとに不足分を1枚ずつ補充する
+export const MOVE_AUTO_REPLENISH = true
+
+// デッキ構築の制限
+export const MIN_DECK_SIZE = 5
+export const MAX_DECK_SIZE = 20
+export const MAX_SAME_CARD_COUNT = 6  // 同名カードの投入上限
 
 // ターン
 // ※ ACTION_TIMEOUT_MS は game-config.json (lib/config.ts) で上書き可能。
@@ -46,12 +53,26 @@ export const CURVE_COLLISION_THRESHOLD = 30 // px (PLAYER_SIZE + マージン)
 // アイテム
 export const ITEM_SIZE = 40              // px (当たり判定の直径)
 export const ITEM_CORNER_RADIUS = 6      // px (見た目の rounded-md と当たり判定の角丸半径)
-export const ITEM_SPAWN_RATE = 0.9       // 毎ターンの出現確率
 export const MAX_ITEMS = 5               // フィールド上の同時存在上限
 export const ITEM_HP_MIN = 1             // ランダムHPの下限
 export const ITEM_HP_MAX = 50            // ランダムHPの上限
 // 出現範囲 (画面左右中央の ±100px)
 export const ITEM_SPAWN_X_HALF_WIDTH = 100
+
+// 種別ごとの絶対出現確率 (毎ターン開始時)。
+// 演算子 0.2 × 4 = 0.8 + pack 0.05 + heal 0.1 = 0.95 (合計 ≤1 で内部クランプ不要)。
+export const DEFAULT_ITEM_SPAWN_RATES: Record<ItemKind, number> = {
+  '+': 0.2,
+  '-': 0.2,
+  '×': 0.2,
+  '÷': 0.2,
+  pack: 0.05,
+  heal: 0.1,
+}
+
+// heal アイテム取得時の回復量 (両端含む乱数)
+export const DEFAULT_HEAL_AMOUNT_MIN = 5
+export const DEFAULT_HEAL_AMOUNT_MAX = 20
 
 // 数学座標系
 export const MATH_X_MIN = -10

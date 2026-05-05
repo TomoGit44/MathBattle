@@ -384,6 +384,7 @@ export const GameField = ({ gameState }: GameFieldProps) => {
         <DetailTooltip
           target={detail.target}
           anchor={detail.anchor}
+          settings={settings}
           onClose={() => setDetail(null)}
         />
       )}

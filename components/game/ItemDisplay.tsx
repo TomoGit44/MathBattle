@@ -7,13 +7,24 @@ interface ItemDisplayProps {
   onClick?: (item: FieldItem, e: MouseEvent) => void
 }
 
-// 演算子別カラーリング (token 経由)
+// 演算子別カラーリング (token 経由)。pack はレア演出として全演算子の色を象徴する金色寄り。
+// heal は回復を象徴する success 系の緑。
 const colorOf = (kind: FieldItem['kind']): string => {
   switch (kind) {
     case '+': return 'bg-op-add-bg/80 border-op-add-border text-op-add'
     case '-': return 'bg-op-sub-bg/80 border-op-sub-border text-op-sub'
     case '×': return 'bg-op-mul-bg/80 border-op-mul-border text-op-mul'
     case '÷': return 'bg-op-div-bg/80 border-op-div-border text-op-div'
+    case 'pack': return 'bg-warn/20 border-warn text-warn'
+    case 'heal': return 'bg-success/20 border-success text-success'
+  }
+}
+
+const labelOf = (kind: FieldItem['kind']): string => {
+  switch (kind) {
+    case 'pack': return '±×÷'
+    case 'heal': return '♥'
+    default: return kind
   }
 }
 
@@ -35,11 +46,11 @@ export const ItemDisplay = ({ item, fieldSize, onClick }: ItemDisplayProps) => {
       }}
       onClick={onClick ? (e) => onClick(item, e) : undefined}
     >
-      {/* 本体 (角丸正方形) */}
+      {/* 本体 (角丸正方形)。pack はラベルが長いので少し小さめに。 */}
       <div
-        className={`w-full h-full ${colorOf(item.kind)} border-2 rounded-md flex items-center justify-center font-bold text-lg sm:text-xl shadow-lg`}
+        className={`w-full h-full ${colorOf(item.kind)} border-2 rounded-md flex items-center justify-center font-bold shadow-lg ${item.kind === 'pack' ? 'text-[10px] sm:text-xs tracking-tighter' : 'text-lg sm:text-xl'}`}
       >
-        {item.kind}
+        {labelOf(item.kind)}
       </div>
       {/* HP バー (上部に重ねる) */}
       <div className="absolute -top-2 left-0 right-0 h-1 bg-bg-mid/80 rounded overflow-hidden border border-line-soft">

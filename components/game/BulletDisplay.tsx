@@ -29,32 +29,36 @@ export const BulletDisplay = ({
   const left = (bullet.position.x / fieldSize.width) * 100
   const top = (bullet.position.y / fieldSize.height) * 100
 
+  const isInfinity = !Number.isFinite(bullet.value)
+
   // 値による「重み」スケール (1.0 〜 1.30) — 値 30 でほぼ最大に
-  const absVal = Math.abs(bullet.value)
+  // 無限弾は最大の重みで描画
+  const absVal = isInfinity ? 30 : Math.abs(bullet.value)
   const weight = Math.min(absVal / 30, 1)
-  const sizeMult = 1 + weight * 0.3
+  const sizeMult = isInfinity ? 1.5 : 1 + weight * 0.3
   const widthPct = ((bulletRadius * 2 * sizeMult) / fieldSize.width) * 100
   const heightPct = ((bulletRadius * 2 * sizeMult) / fieldSize.height) * 100
 
   const isPrime = isPrimeBullet(bullet.value)
 
-  // 素数弾は violet + ガラス白 (AI-slop fuchsia グラデから脱出)
-  // 通常弾は所有者カラー (p1=sky / p2=rose)
-  const color = isPrime
+  // 素数弾は violet + ガラス白、無限弾は warn (黄)、通常弾は所有者カラー
+  const color = isInfinity
+    ? 'bg-bg-deep border-warn text-warn'
+    : isPrime
     ? 'bg-prime-bg border-prime-edge text-prime-text'
     : isOwn
     ? 'bg-p1-bg border-p1-border text-p1'
     : 'bg-p2-bg border-p2-border text-p2'
 
-  // グロー強度: 値が大きいほど光が広がる (transform/opacity 以外だが、box-shadow は
-  // GPU レイヤを破壊しないため許容)
-  const glowColor = isPrime
+  const glowColor = isInfinity
+    ? 'var(--color-warn)'
+    : isPrime
     ? 'var(--color-prime-edge)'
     : isOwn
     ? 'var(--color-p1)'
     : 'var(--color-p2)'
-  const glowSize = 6 + weight * 14
-  const glowSpread = weight * 4
+  const glowSize = isInfinity ? 22 : 6 + weight * 14
+  const glowSpread = isInfinity ? 6 : weight * 4
 
   return (
     <div
@@ -84,7 +88,7 @@ export const BulletDisplay = ({
             : `0 0 4px ${glowColor}, 0 0 8px ${glowColor}`,
         }}
       >
-        {bullet.value}
+        {isInfinity ? '∞' : bullet.value}
       </div>
     </div>
   )

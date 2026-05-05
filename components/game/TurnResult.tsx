@@ -68,8 +68,9 @@ export const TurnResult = ({ turnResult, meId, turn }: TurnResultProps) => {
   }, [turnResult, meId, turn])
 
   const itemKills = turnResult.itemKills ?? []
+  const itemPickups = turnResult.itemPickups ?? []
 
-  // 結果行を並べる (順番固定: action → damages → curveDamages → bulletEvents → itemKills)
+  // 結果行を並べる (順番固定: action → damages → curveDamages → bulletEvents → itemKills → itemPickups)
   const rows = useMemo(() => {
     const list: { key: string; node: React.ReactNode }[] = []
     Object.values(turnResult.actions).forEach((action, i) => {
@@ -79,9 +80,10 @@ export const TurnResult = ({ turnResult, meId, turn }: TurnResultProps) => {
       })
     })
     Object.entries(turnResult.damages).forEach(([id, dmg]) => {
+      const label = Number.isFinite(dmg) ? dmg : '∞'
       list.push({
         key: `d-${id}`,
-        node: <div className="text-p2 mb-tabular">{dmg} ダメージ!</div>,
+        node: <div className="text-p2 mb-tabular">{label} ダメージ!</div>,
       })
     })
     Object.entries(turnResult.curveDamages).forEach(([id, dmg]) => {
@@ -92,6 +94,12 @@ export const TurnResult = ({ turnResult, meId, turn }: TurnResultProps) => {
         ),
       })
     })
+    ;(turnResult.curveEvents ?? []).forEach((event, i) => {
+      list.push({
+        key: `ce-${i}`,
+        node: <div className="text-axis-origin">{event}</div>,
+      })
+    })
     turnResult.bulletEvents.forEach((event, i) => {
       list.push({
         key: `b-${i}`,
@@ -99,18 +107,41 @@ export const TurnResult = ({ turnResult, meId, turn }: TurnResultProps) => {
       })
     })
     itemKills.forEach((k) => {
+      const isPack = k.kind === 'pack'
+      const isHeal = k.kind === 'heal'
+      const label = isPack ? '演算子パック' : isHeal ? '回復アイテム' : `アイテム [${k.kind}]`
+      const reward = isPack
+        ? k.awardedCount === 4
+          ? '→ 4種演算子を一括獲得'
+          : k.awardedCount > 0
+            ? `→ ${k.awardedCount}/4 枚のみ獲得 (手札の空き不足)`
+            : '→ 手札満杯のためドロップ'
+        : isHeal
+          ? k.awardedCount > 0 ? `→ HP +${k.awardedCount}` : '→ HP満タンのため効果なし'
+          : k.awardedCount > 0 ? '→ 獲得 (手札に追加)' : '→ 手札満杯のためドロップ'
       list.push({
         key: `k-${k.itemId}`,
-        node: (
-          <div className="text-op-sub">
-            🎁 アイテム [{k.kind}] を撃破!{' '}
-            {k.awarded ? '→ 獲得 (手札に追加)' : '→ 手札満杯のためドロップ'}
-          </div>
-        ),
+        node: <div className={isHeal ? 'text-success' : 'text-op-sub'}>🎁 {label} を撃破! {reward}</div>,
+      })
+    })
+    itemPickups.forEach((p) => {
+      const isPack = p.kind === 'pack'
+      const isHeal = p.kind === 'heal'
+      const label = isPack ? '演算子パック' : isHeal ? '回復アイテム' : `アイテム [${p.kind}]`
+      const reward = isPack
+        ? p.awardedCount === 4
+          ? '→ 4種演算子を一括獲得'
+          : `→ ${p.awardedCount}/4 枚のみ獲得 (手札の空き不足)`
+        : isHeal
+          ? `→ HP +${p.awardedCount}`
+          : p.awardedCount > 0 ? '→ 獲得 (手札に追加)' : '→ 手札満杯'
+      list.push({
+        key: `p-${p.itemId}`,
+        node: <div className={isHeal ? 'text-success' : 'text-op-sub'}>✋ {label} を拾得! {reward}</div>,
       })
     })
     return list
-  }, [turnResult, itemKills])
+  }, [turnResult, itemKills, itemPickups])
 
   const hasContent = rows.length > 0
   const showPanel = hasContent && stage !== 'intro'

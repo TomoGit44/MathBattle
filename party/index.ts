@@ -71,10 +71,10 @@ export default class MathBattleServer {
   }
 
   private resolveWithDefaults() {
-    // タイムアウト: アクション未提出のプレイヤーは「移動なし」扱い
+    // タイムアウト: アクション未提出のプレイヤーはスキップ扱い
     for (const id of this.playerOrder) {
       if (!this.pendingActions.has(id)) {
-        this.pendingActions.set(id, { type: 'move', direction: 'up' })
+        this.pendingActions.set(id, { type: 'skip' })
       }
     }
     this.resolveRound()

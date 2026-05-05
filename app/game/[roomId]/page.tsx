@@ -1,11 +1,28 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useGameSocket } from '@/hooks/useGameSocket'
 import { GameScreen } from '@/components/game/GameScreen'
 import { GameOver } from '@/components/game/GameOver'
 import { BackgroundGrid } from '@/components/game/BackgroundGrid'
+import { validateDeck } from '@/lib/deck'
+import type { Card } from '@/lib/types'
+
+const PENDING_DECK_KEY = 'mathbattle:pendingDeck'
+
+const readPendingDeck = (): Card[] | undefined => {
+  if (typeof window === 'undefined') return undefined
+  try {
+    const raw = sessionStorage.getItem(PENDING_DECK_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw)
+    if (validateDeck(parsed) !== null) return undefined
+    return parsed as Card[]
+  } catch {
+    return undefined
+  }
+}
 
 // 接続待ちなどで使うパルスドット (3 つを位相ずらし)
 const PulseDots = () => (
@@ -31,8 +48,11 @@ const GameRoomInner = () => {
   const name = searchParams.get('name') ?? 'Player'
   const [copied, setCopied] = useState(false)
 
+  // セッション保存されたデッキを読み出してサーバーに送る (検証通過分のみ)
+  const deck = useMemo(() => readPendingDeck(), [])
+
   const { gameState, status, error, isWaiting, gameOverWinnerId, sendAction } =
-    useGameSocket(roomId, name)
+    useGameSocket(roomId, name, deck)
 
   const handleCopy = async () => {
     try {

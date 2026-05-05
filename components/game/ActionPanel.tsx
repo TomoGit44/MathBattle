@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import type { Action, HandItem } from '@/lib/types'
 import { HandDisplay } from './HandDisplay'
 import { FunctionPreview, type FunctionSequenceEntry } from './FunctionPreview'
@@ -13,10 +13,9 @@ interface ActionPanelProps {
   onSubmit: (action: Action) => void
   disabled: boolean
   functionUsesRemaining: number
-  hasMoved: boolean
 }
 
-export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, hasMoved }: ActionPanelProps) => {
+export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }: ActionPanelProps) => {
   const [mode, setMode] = useState<ActionMode>(null)
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
   const [submitted, setSubmitted] = useState(false)
@@ -66,11 +65,10 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
     reset()
   }, [onSubmit, reset])
 
-  // 移動 / skip_move は即時処理 (ターン終了しない)
-  const submitImmediate = useCallback((action: Action) => {
-    onSubmit(action)
-    reset()
-  }, [onSubmit, reset])
+  // 移動カード使用は即時処理 (ターン終了しない・回数制限なし)
+  const useMoveCard = useCallback((index: number) => {
+    onSubmit({ type: 'use_move_card', handIndex: index })
+  }, [onSubmit])
 
   // 計算は即時処理。submitted=true にせず、選択だけクリアして連続入力を許可
   const submitCalculate = useCallback(() => {
@@ -103,34 +101,84 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
     submit({ type: 'function', cardIndices, xPositions })
   }, [functionSequence, submit])
 
-  // 関数式バリデーション (簡易)
-  const isFunctionValid = (): boolean => {
-    if (functionSequence.length < 3) return false
-    if (functionSequence.length % 2 === 0) return false
+  // 関数式バリデーション。null = OK、それ以外は表示用のエラーメッセージ。
+  // 入力途中 (空・短すぎ) はメッセージを出さず無効化のみ。x 抜け等は具体的に案内する。
+  const functionError = (): { silent: true } | { message: string } | null => {
+    if (functionSequence.length === 0) return { silent: true }
+    if (functionSequence.length < 3) return { message: '式は最低3要素必要です' }
+    if (functionSequence.length % 2 === 0) return { message: '式の長さが不正です (奇数枚にしてください)' }
+
     const hasX = functionSequence.some((e) => e.type === 'x')
-    if (!hasX) return false
+    if (!hasX) return { message: 'x を使用してください (例: x+1)' }
 
     // 交互パターンチェック
     for (let i = 0; i < functionSequence.length; i++) {
       const entry = functionSequence[i]
       if (i % 2 === 0) {
-        // 偶数位置: 数値 or x
         if (entry.type === 'hand') {
           const item = hand[entry.index]
-          if (item?.type === 'operator') return false
+          if (item?.type === 'operator') return { message: `${i + 1}番目は数値かxにしてください` }
         }
-        // x は OK
       } else {
-        // 奇数位置: 演算子
-        if (entry.type === 'x') return false
+        if (entry.type === 'x') return { message: `${i + 1}番目は演算子にしてください` }
         if (entry.type === 'hand') {
           const item = hand[entry.index]
-          if (item?.type !== 'operator') return false
+          if (item?.type !== 'operator') return { message: `${i + 1}番目は演算子にしてください` }
         }
       }
     }
-    return true
+    return null
   }
+
+  const fnErr = functionError()
+  const isFunctionValid = fnErr === null
+
+  // 関数モードで「次に置けるトークン」の種別。偶数位置=値(数値/x)、奇数位置=演算子。
+  const nextSlotKind: 'value' | 'operator' =
+    functionSequence.length % 2 === 0 ? 'value' : 'operator'
+
+  // 関数モードで無効化する手札インデックス:
+  //   - すでに使用済み
+  //   - 次に置けるトークン種別と合わない (operator スロットに数値、value スロットに演算子)
+  //   - 無限 (∞) は関数では使えない (サーバーも拒否する)
+  //   - 移動カードも関数では使えない
+  const fnDisabledIndices = useMemo(() => {
+    const set = new Set(usedHandIndices)
+    hand.forEach((item, idx) => {
+      if (set.has(idx)) return
+      if (item.type === 'move') {
+        set.add(idx)
+        return
+      }
+      const isValue = item.type === 'number' || item.type === 'token'
+      const isInfinity = isValue && !Number.isFinite(item.value)
+      if (isInfinity) {
+        set.add(idx)
+        return
+      }
+      if (nextSlotKind === 'value' && item.type === 'operator') set.add(idx)
+      if (nextSlotKind === 'operator' && isValue) set.add(idx)
+    })
+    return set
+  }, [hand, usedHandIndices, nextSlotKind])
+
+  // 移動カード以外を無効化したインデックス集合 (null モードで使用)
+  const nonMoveDisabledIndices = useMemo(() => {
+    const set = new Set<number>()
+    hand.forEach((item, idx) => {
+      if (item.type !== 'move') set.add(idx)
+    })
+    return set
+  }, [hand])
+
+  // 移動カードを無効化したインデックス集合 (calculate/attack モードで使用)
+  const moveDisabledIndices = useMemo(() => {
+    const set = new Set<number>()
+    hand.forEach((item, idx) => {
+      if (item.type === 'move') set.add(idx)
+    })
+    return set
+  }, [hand])
 
   if (submitted || disabled) {
     return (
@@ -145,72 +193,47 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
   return (
     <div className="space-y-3">
       {/* 手札表示 */}
-      {mode !== 'function' ? (
+      {mode === null && (
+        <HandDisplay
+          hand={hand}
+          selectedIndices={new Set()}
+          onToggle={(index) => {
+            if (nonMoveDisabledIndices.has(index)) return
+            useMoveCard(index)
+          }}
+          selectable={true}
+          disabledIndices={nonMoveDisabledIndices}
+        />
+      )}
+      {(mode === 'calculate' || mode === 'attack') && (
         <HandDisplay
           hand={hand}
           selectedIndices={selectedIndices}
-          onToggle={toggleCard}
-          selectable={mode === 'calculate' || mode === 'attack'}
+          onToggle={(index) => {
+            if (moveDisabledIndices.has(index)) return
+            toggleCard(index)
+          }}
+          selectable={true}
+          disabledIndices={moveDisabledIndices}
         />
-      ) : (
+      )}
+      {mode === 'function' && (
         <HandDisplay
           hand={hand}
           selectedIndices={usedHandIndices}
           onToggle={(index) => {
-            if (!usedHandIndices.has(index)) {
-              addHandToSequence(index)
-            }
+            if (fnDisabledIndices.has(index)) return
+            addHandToSequence(index)
           }}
           selectable={true}
-          disabledIndices={usedHandIndices}
+          disabledIndices={fnDisabledIndices}
         />
       )}
 
-      {/* 第1段階: 移動フェーズ (必須・毎ターン1回) */}
-      {!hasMoved && mode === null && (
+      {/* メインアクション選択。移動カードは手札から直接クリックで即時使用 (回数制限なし)。 */}
+      {mode === null && (
         <div className="flex flex-col items-center gap-2">
-          <div className="text-sm text-axis-origin font-bold">ステップ 1: 移動</div>
-          <div className="flex flex-col items-center gap-1">
-            <button
-              onClick={() => submitImmediate({ type: 'move', direction: 'up' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
-            >
-              ↑
-            </button>
-            <div className="flex gap-1">
-              <button
-                onClick={() => submitImmediate({ type: 'move', direction: 'left' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
-              >
-                ←
-              </button>
-              <button
-                onClick={() => submitImmediate({ type: 'skip_move' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded text-[10px] leading-tight touch-manipulation transition-colors duration-[var(--dur-fast)]"
-              >
-                移動<br />しない
-              </button>
-              <button
-                onClick={() => submitImmediate({ type: 'move', direction: 'right' })}
-                className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
-              >
-                →
-              </button>
-            </div>
-            <button
-              onClick={() => submitImmediate({ type: 'move', direction: 'down' })}
-              className="w-14 h-12 sm:w-12 sm:h-10 bg-p1-deep/80 active:bg-p1-deep hover:bg-p1-deep border border-p1-border/40 text-text rounded font-bold text-xl sm:text-base touch-manipulation transition-colors duration-[var(--dur-fast)]"
-            >
-              ↓
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 第2段階: メインアクション選択 */}
-      {hasMoved && mode === null && (
-        <div className="flex flex-col items-center gap-2">
-          <div className="text-sm text-warn font-bold">ステップ 2: アクション</div>
+          <div className="text-xs text-text-faint">移動は手札の矢印カードをクリック (回数制限なし)</div>
           <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
             <button
               onClick={() => setMode('calculate')}
@@ -306,7 +329,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
           <div className="flex gap-2 justify-center items-center flex-wrap">
             <button
               onClick={addXToSequence}
-              className="px-3 py-2 bg-op-sub-bg hover:bg-op-sub-bg/70 border border-op-sub-border/50 rounded-lg font-bold text-op-sub transition-colors duration-[var(--dur-fast)]"
+              disabled={nextSlotKind === 'operator'}
+              className="px-3 py-2 bg-op-sub-bg hover:bg-op-sub-bg/70 disabled:bg-bg-elev disabled:text-text-mute disabled:border-line border border-op-sub-border/50 rounded-lg font-bold text-op-sub transition-colors duration-[var(--dur-fast)]"
             >
               x
             </button>
@@ -319,7 +343,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
             </button>
             <button
               onClick={submitFunction}
-              disabled={!isFunctionValid()}
+              disabled={!isFunctionValid}
               className="px-4 py-2 bg-op-add-bg hover:bg-op-add-bg/70 border border-op-add-border/50 text-op-add disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)]"
             >
               定義
@@ -328,6 +352,11 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, h
               戻る
             </button>
           </div>
+          {fnErr && 'message' in fnErr && (
+            <p className="text-xs text-warn bg-bg-mid border border-line-strong rounded px-2 py-1 text-center">
+              ⚠ {fnErr.message}
+            </p>
+          )}
           <p className="text-xs text-text-faint text-center">
             手札のカードとxを交互に配置して関数を定義 (例: x×x+3)
           </p>

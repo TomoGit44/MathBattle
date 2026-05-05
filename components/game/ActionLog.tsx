@@ -91,6 +91,7 @@ const LogEntryItem = ({
   const actionEntries = Object.entries(result.actions)
   const primeEntries = Object.entries(result.primeSynthesis ?? {})
   const itemKills = result.itemKills ?? []
+  const itemPickups = result.itemPickups ?? []
 
   return (
     <li
@@ -169,18 +170,46 @@ const LogEntryItem = ({
         </div>
       )}
 
-      {/* アイテム撃破 */}
-      {itemKills.length > 0 && (
+      {/* アイテム撃破 / 拾得 */}
+      {(itemKills.length > 0 || itemPickups.length > 0) && (
         <div className="space-y-0.5">
           <div className="text-[10px] uppercase tracking-wider text-text-faint">
             アイテム
           </div>
-          {itemKills.map((k) => (
-            <div key={k.itemId} className="text-xs text-op-sub leading-snug">
-              🎁 {nameOf(k.killerId)} が「{k.kind}」を撃破{' '}
-              {k.awarded ? '(獲得)' : '(満杯)'}
-            </div>
-          ))}
+          {itemKills.map((k) => {
+            const isPack = k.kind === 'pack'
+            const isHeal = k.kind === 'heal'
+            const label = isPack ? '演算子パック' : isHeal ? '回復アイテム' : `「${k.kind}」`
+            const awardLabel = isPack
+              ? k.awardedCount === 4
+                ? '(4枚獲得)'
+                : k.awardedCount > 0
+                  ? `(${k.awardedCount}/4獲得)`
+                  : '(満杯)'
+              : isHeal
+                ? k.awardedCount > 0 ? `(+${k.awardedCount} HP)` : '(HP満タン)'
+                : k.awardedCount > 0 ? '(獲得)' : '(満杯)'
+            return (
+              <div key={`kill-${k.itemId}`} className="text-xs text-op-sub leading-snug">
+                🎁 {nameOf(k.killerId)} が{label}を撃破 {awardLabel}
+              </div>
+            )
+          })}
+          {itemPickups.map((p) => {
+            const isPack = p.kind === 'pack'
+            const isHeal = p.kind === 'heal'
+            const label = isPack ? '演算子パック' : isHeal ? '回復アイテム' : `「${p.kind}」`
+            const awardLabel = isPack && p.awardedCount > 0
+              ? p.awardedCount === 4 ? ' (4枚獲得)' : ` (${p.awardedCount}/4獲得)`
+              : isHeal && p.awardedCount > 0
+                ? ` (+${p.awardedCount} HP)`
+                : ''
+            return (
+              <div key={`pick-${p.itemId}`} className="text-xs text-op-sub leading-snug">
+                ✋ {nameOf(p.pickerId)} が{label}を拾得{awardLabel}
+              </div>
+            )
+          })}
         </div>
       )}
     </li>

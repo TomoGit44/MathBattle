@@ -16,8 +16,8 @@
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { FIELD_WIDTH, FIELD_HEIGHT, ITEM_SIZE, ITEM_SPAWN_RATE, MAX_ITEMS } from './constants'
-import type { GameSettings } from './types'
+import { FIELD_WIDTH, FIELD_HEIGHT, ITEM_SIZE, DEFAULT_ITEM_SPAWN_RATES, DEFAULT_HEAL_AMOUNT_MIN, DEFAULT_HEAL_AMOUNT_MAX, MAX_ITEMS } from './constants'
+import type { GameSettings, ItemKind } from './types'
 
 export type { GameSettings }
 
@@ -29,8 +29,11 @@ export interface GameConfig {
   wallReflectionBonus: number
   mathXMax: number
   itemSize: number          // px (アイテムの当たり判定の直径)
-  itemSpawnRate: number     // 0.0〜1.0
+  // 種別ごとの絶対出現確率。設定ファイルでキー '+', '-', '×', '÷', 'pack', 'heal' を指定可能
+  itemSpawnRates: Record<ItemKind, number>
   maxItems: number          // フィールド上の同時存在上限
+  healAmountMin: number     // heal 取得時の最小回復量
+  healAmountMax: number     // heal 取得時の最大回復量
 }
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -41,9 +44,14 @@ const DEFAULT_CONFIG: GameConfig = {
   wallReflectionBonus: 3,
   mathXMax: 10,
   itemSize: ITEM_SIZE,
-  itemSpawnRate: ITEM_SPAWN_RATE,
+  itemSpawnRates: { ...DEFAULT_ITEM_SPAWN_RATES },
   maxItems: MAX_ITEMS,
+  healAmountMin: DEFAULT_HEAL_AMOUNT_MIN,
+  healAmountMax: DEFAULT_HEAL_AMOUNT_MAX,
 }
+
+const ITEM_KIND_KEYS: ItemKind[] = ['+', '-', '×', '÷', 'pack', 'heal']
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 const CONFIG_PATH = resolve(process.cwd(), 'game-config.json')
 
@@ -79,8 +87,24 @@ const validate = (raw: unknown): GameConfig => {
   if (isPositiveNumber(obj.itemSize)) {
     cfg.itemSize = obj.itemSize
   }
-  if (typeof obj.itemSpawnRate === 'number' && Number.isFinite(obj.itemSpawnRate)) {
-    cfg.itemSpawnRate = Math.max(0, Math.min(1, obj.itemSpawnRate))
+  // itemSpawnRates: 種別ごとに 0..1 でクランプ。
+  // 後方互換: 旧キー itemSpawnRate (単一数値) は演算子4種に均等配分する。
+  if (obj.itemSpawnRates && typeof obj.itemSpawnRates === 'object') {
+    const rates = obj.itemSpawnRates as Record<string, unknown>
+    const next: Record<ItemKind, number> = { ...cfg.itemSpawnRates }
+    for (const k of ITEM_KIND_KEYS) {
+      const v = rates[k]
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        next[k] = clamp01(v)
+      }
+    }
+    cfg.itemSpawnRates = next
+  } else if (typeof obj.itemSpawnRate === 'number' && Number.isFinite(obj.itemSpawnRate)) {
+    const total = clamp01(obj.itemSpawnRate)
+    const each = total / 4
+    cfg.itemSpawnRates = {
+      '+': each, '-': each, '×': each, '÷': each, pack: 0, heal: 0,
+    }
   }
   if (
     typeof obj.maxItems === 'number' &&
@@ -89,6 +113,17 @@ const validate = (raw: unknown): GameConfig => {
     Number.isInteger(obj.maxItems)
   ) {
     cfg.maxItems = obj.maxItems
+  }
+
+  // heal 回復量レンジ。負値や逆転 (min > max) は補正
+  if (isNonNegativeNumber(obj.healAmountMin)) {
+    cfg.healAmountMin = Math.floor(obj.healAmountMin)
+  }
+  if (isNonNegativeNumber(obj.healAmountMax)) {
+    cfg.healAmountMax = Math.floor(obj.healAmountMax)
+  }
+  if (cfg.healAmountMax < cfg.healAmountMin) {
+    cfg.healAmountMax = cfg.healAmountMin
   }
 
   return cfg
@@ -108,8 +143,10 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     mathYMax,
     pixelsPerUnit,
     itemSize: cfg.itemSize,
-    itemSpawnRate: cfg.itemSpawnRate,
+    itemSpawnRates: { ...cfg.itemSpawnRates },
     maxItems: cfg.maxItems,
+    healAmountMin: cfg.healAmountMin,
+    healAmountMax: cfg.healAmountMax,
   }
 }
 

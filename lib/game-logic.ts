@@ -11,6 +11,7 @@ import type {
   Bullet,
   GameSettings,
   Position,
+  Direction,
 } from './types'
 import {
   FIELD_WIDTH,
@@ -30,7 +31,9 @@ import {
   MOVE_DISTANCE,
   WALL_REFLECTION_BONUS,
   ITEM_SIZE,
-  ITEM_SPAWN_RATE,
+  DEFAULT_ITEM_SPAWN_RATES,
+  DEFAULT_HEAL_AMOUNT_MIN,
+  DEFAULT_HEAL_AMOUNT_MAX,
   MAX_ITEMS,
 } from './constants'
 import { shuffleDeck, drawCards, createDefaultDeck } from './deck'
@@ -39,8 +42,9 @@ import { applyFunction } from './func-engine'
 import { createBullet, tickBullets, checkBulletCollisions, checkPlayerHits } from './physics'
 import { applyDamage, checkGameOver } from './damage'
 import { checkCurveDamages } from './curve-collision'
+import { expressionKey } from './func-engine'
 import { isPrimeBullet } from './prime'
-import { trySpawnItem, checkBulletItemCollisions, applyCurveDamageToItems, type ItemKill } from './items'
+import { trySpawnItem, checkBulletItemCollisions, applyCurveDamageToItems, pickupItemsForPlayer, applyItemReward, type ItemKill, type ItemPickup } from './items'
 
 // 設定ファイルが無い場合に使うデフォルト設定 (既存の constants と同等)
 // 旧来の mathXMax=10 / mathYMax=5 → pixelsPerUnit=40 相当
@@ -53,8 +57,10 @@ const DEFAULT_SETTINGS: GameSettings = {
   mathYMax: 5,
   pixelsPerUnit: 40,
   itemSize: ITEM_SIZE,
-  itemSpawnRate: ITEM_SPAWN_RATE,
+  itemSpawnRates: { ...DEFAULT_ITEM_SPAWN_RATES },
   maxItems: MAX_ITEMS,
+  healAmountMin: DEFAULT_HEAL_AMOUNT_MIN,
+  healAmountMax: DEFAULT_HEAL_AMOUNT_MAX,
 }
 
 export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({
@@ -83,7 +89,6 @@ export const addPlayer = (
     hand: [],
     deckRemaining: 0,
     functionUsesRemaining: MAX_FUNCTION_USES,
-    hasMovedThisTurn: false,
   }
   return {
     ...state,
@@ -124,10 +129,27 @@ const replenishNumbers = (hand: HandItem[]): { hand: HandItem[]; added: HandItem
   return { hand: [...hand, ...added], added }
 }
 
+// 移動カードの自動補充: 各方向ごとに手札に1枚もなければ補充する。
+// これによりプレイヤーが移動できなくなる詰みを防ぐ (CLAUDE.md: 自動供給)。
+const ALL_DIRECTIONS: Direction[] = ['up', 'down', 'left', 'right']
+const replenishMoves = (hand: HandItem[]): { hand: HandItem[]; added: HandItem[] } => {
+  const owned = new Set<Direction>()
+  for (const item of hand) {
+    if (item.type === 'move') owned.add(item.direction)
+  }
+  const added: HandItem[] = []
+  for (const dir of ALL_DIRECTIONS) {
+    if (owned.has(dir)) continue
+    if (hand.length + added.length >= MAX_HAND_SIZE) break
+    added.push({ type: 'move', direction: dir })
+  }
+  return { hand: [...hand, ...added], added }
+}
+
 export const executeDraw = (
   state: GameState,
   decks: Map<string, Card[]>
-): { state: GameState; decks: Map<string, Card[]>; drawnCards: Record<string, HandItem[]> } => {
+): { state: GameState; decks: Map<string, Card[]>; drawnCards: Record<string, HandItem[]>; pickups: ItemPickup[] } => {
   const newPlayers = { ...state.players }
   const newDecks = new Map(decks)
   const drawnCards: Record<string, HandItem[]> = {}
@@ -153,26 +175,39 @@ export const executeDraw = (
     }
 
     // 数字カードが閾値以下なら 1-9 を補充
-    const { hand: replenishedHand, added } = replenishNumbers(handAfter)
+    const { hand: numReplenished, added: numAdded } = replenishNumbers(handAfter)
+    // 各方向の移動カードがなければ補充
+    const { hand: replenishedHand, added: moveAdded } = replenishMoves(numReplenished)
 
-    drawnCards[id] = [...drawnList, ...added]
+    drawnCards[id] = [...drawnList, ...numAdded, ...moveAdded]
 
     newPlayers[id] = {
       ...player,
       hand: replenishedHand,
       deckRemaining: remainingDeck.length,
-      hasMovedThisTurn: false, // 新ターン開始: 移動可能状態に戻す
     }
   }
 
   // ターン開始時にアイテムをランダム生成 (settings.itemSpawnRate, settings.maxItems を使用)
   const spawned = trySpawnItem(state.items, state.fieldSize, state.settings)
-  const newItems = spawned ? [...state.items, spawned] : state.items
+  let newItems = spawned ? [...state.items, spawned] : state.items
+
+  // スポーン直後にプレイヤーの上に重なっていれば即時拾得 (まれだが防御的に)
+  const allPickups: ItemPickup[] = []
+  for (const id of Object.keys(newPlayers)) {
+    const result = pickupItemsForPlayer(newPlayers[id], newItems, state.settings)
+    if (result.pickups.length > 0) {
+      newItems = result.items
+      newPlayers[id] = result.player
+      allPickups.push(...result.pickups)
+    }
+  }
 
   return {
     state: { ...state, phase: 'action', players: newPlayers, items: newItems },
     decks: newDecks,
     drawnCards,
+    pickups: allPickups,
   }
 }
 
@@ -186,40 +221,47 @@ const clampPosition = (
   y: Math.max(playerRadius, Math.min(fieldSize.height - playerRadius, y)),
 })
 
+const dirArrow = (d: Direction): string => ({ up: '↑', down: '↓', left: '←', right: '→' }[d])
+
 const describeAction = (action: Action, player: PlayerState): string => {
   switch (action.type) {
-    case 'move':
-      return `${player.name} が ${action.direction} に移動`
+    case 'use_move_card': {
+      const item = player.hand[action.handIndex]
+      const dir = item?.type === 'move' ? dirArrow(item.direction) : '?'
+      return `${player.name} が ${dir} に移動`
+    }
     case 'calculate':
       return `${player.name} が計算を実行`
     case 'attack': {
       const item = player.hand[action.handIndex]
-      const val = item?.type === 'number' ? item.value : item?.type === 'token' ? item.value : '?'
+      const raw = item?.type === 'number' ? item.value : item?.type === 'token' ? item.value : null
+      const val = raw === null ? '?' : Number.isFinite(raw) ? raw : '∞'
       return `${player.name} が ${val} で攻撃`
     }
     case 'function':
       return `${player.name} が関数を定義`
     case 'skip':
       return `${player.name} はスキップ`
-    case 'skip_move':
-      return `${player.name} は移動しなかった`
   }
 }
 
-// 即時移動 (サーバーが action フェーズ中に直接呼ぶ)
-// すでに移動済みなら null を返す
+// 移動カードを使用した即時移動。
+// - 指定された手札インデックスが移動カードでなければ null
+// - 該当カードの方向に moveDistance だけ動かして手札から消費する
+// - 移動先のアイテムに触れたら即時拾得 (pickups に記録)
 export const applyImmediateMove = (
   state: GameState,
   playerId: string,
-  direction: 'up' | 'down' | 'left' | 'right'
-): GameState | null => {
+  handIndex: number
+): { state: GameState; pickups: ItemPickup[] } | null => {
   const player = state.players[playerId]
   if (!player) return null
-  if (player.hasMovedThisTurn) return null
+  const card = player.hand[handIndex]
+  if (!card || card.type !== 'move') return null
 
   let { x, y } = player.position
   const dist = state.settings.moveDistance
-  switch (direction) {
+  switch (card.direction) {
     case 'up': y -= dist; break
     case 'down': y += dist; break
     case 'left': x -= dist; break
@@ -227,26 +269,27 @@ export const applyImmediateMove = (
   }
   const clamped = clampPosition(x, y, state.fieldSize, state.settings.playerRadius)
 
-  return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: { ...player, position: clamped, hasMovedThisTurn: true },
-    },
-  }
-}
+  // 移動カード消費
+  const consumed = [...player.hand]
+  consumed.splice(handIndex, 1)
+  const movedPlayer: PlayerState = { ...player, position: clamped, hand: consumed }
 
-// 移動フェーズで「移動しない」を選択したときに hasMovedThisTurn だけ立てる
-export const markMoveSkipped = (state: GameState, playerId: string): GameState | null => {
-  const player = state.players[playerId]
-  if (!player) return null
-  if (player.hasMovedThisTurn) return null
+  const { items: remainingItems, player: pickedPlayer, pickups } = pickupItemsForPlayer(
+    movedPlayer,
+    state.items,
+    state.settings
+  )
+
   return {
-    ...state,
-    players: {
-      ...state.players,
-      [playerId]: { ...player, hasMovedThisTurn: true },
+    state: {
+      ...state,
+      items: remainingItems,
+      players: {
+        ...state.players,
+        [playerId]: pickedPlayer,
+      },
     },
+    pickups,
   }
 }
 
@@ -260,7 +303,7 @@ export const resolveActions = (
   let items = [...state.items]
   const bulletSnapshots: BulletSnapshot[] = []
   const itemKillsAccum: ItemKill[] = []
-  const turnResult: TurnResult = { actions: {}, damages: {}, bulletEvents: [], bulletSnapshots: [], playerPositions: {}, curveDamages: {}, primeSynthesis: {}, itemKills: [] }
+  const turnResult: TurnResult = { actions: {}, damages: {}, bulletEvents: [], bulletSnapshots: [], playerPositions: {}, curveDamages: {}, primeSynthesis: {}, itemKills: [], curveEvents: [] }
 
   // アクション解決
   for (const [id, action] of Object.entries(actions)) {
@@ -273,16 +316,12 @@ export const resolveActions = (
     }
 
     switch (action.type) {
-      case 'move': {
-        // 移動は action フェーズ中に即時適用済み。ここでは何もしない
+      case 'use_move_card': {
+        // 移動カードは action フェーズ中に即時適用済み。ここでは何もしない
         break
       }
       case 'skip': {
         // スキップ: 何もしない
-        break
-      }
-      case 'skip_move': {
-        // skip_move は即時処理済み。ここでは何もしない
         break
       }
       case 'calculate': {
@@ -338,6 +377,35 @@ export const resolveActions = (
     }
   }
 
+  // 関数カーブの打ち消し処理: このターン新たに定義された曲線が、既存・同ターン内の
+  // 相手の曲線と式が一致する場合、両者をフィールドから取り除く (1対1ペアリング)。
+  // 同じプレイヤーの重複は damage 集計時に dedupe するのでここでは除去しない。
+  {
+    const preexistingIds = new Set(state.curves.map((c) => c.id))
+    const newCurves = curves.filter((c) => !preexistingIds.has(c.id))
+    const removeIds = new Set<string>()
+    for (const newCurve of newCurves) {
+      if (removeIds.has(newCurve.id)) continue
+      const match = curves.find(
+        (c) =>
+          c.id !== newCurve.id &&
+          c.owner !== newCurve.owner &&
+          !removeIds.has(c.id) &&
+          expressionKey(c.expression) === expressionKey(newCurve.expression)
+      )
+      if (match) {
+        removeIds.add(newCurve.id)
+        removeIds.add(match.id)
+        const nameA = players[newCurve.owner]?.name ?? newCurve.owner
+        const nameB = players[match.owner]?.name ?? match.owner
+        turnResult.curveEvents!.push(
+          `🎯 ${nameA} と ${nameB} の ${newCurve.displayString} が打ち消し合い`
+        )
+      }
+    }
+    if (removeIds.size > 0) curves = curves.filter((c) => !removeIds.has(c.id))
+  }
+
   // 弾の初期スナップショット (アクション解決直後)
   bulletSnapshots.push({ bullets: bullets.map((b) => ({ ...b, position: { ...b.position }, velocity: { ...b.velocity } })) })
 
@@ -385,23 +453,20 @@ export const resolveActions = (
   items = curveItemRes.items
   if (curveItemRes.kills.length > 0) itemKillsAccum.push(...curveItemRes.kills)
 
-  // アイテム撃破 → killer に演算子カードを手札追加 (上限超過時はドロップ)
-  const operatorOf = (kind: ItemKill['kind']): '+' | '-' | '×' | '÷' => kind
+  // アイテム撃破 → killer に報酬を適用 (演算子カード追加 / heal なら HP 回復)
+  // pack の場合は4種演算子を一括付与 (空きが足りなければ入る分だけ)
   const recordedKills: NonNullable<TurnResult['itemKills']> = []
   for (const kill of itemKillsAccum) {
     const killer = players[kill.killerId]
     if (!killer) {
-      recordedKills.push({ ...kill, awarded: false })
+      recordedKills.push({ ...kill, awardedCount: 0 })
       continue
     }
-    if (killer.hand.length >= MAX_HAND_SIZE) {
-      // 手札満杯 → ドロップ
-      recordedKills.push({ ...kill, awarded: false })
-      continue
+    const { player: nextKiller, awardedCount } = applyItemReward(killer, kill.kind, state.settings)
+    if (awardedCount > 0) {
+      players[kill.killerId] = nextKiller
     }
-    const newCard: HandItem = { type: 'operator', operator: operatorOf(kill.kind) }
-    players[kill.killerId] = { ...killer, hand: [...killer.hand, newCard] }
-    recordedKills.push({ ...kill, awarded: true })
+    recordedKills.push({ ...kill, awardedCount })
   }
   turnResult.itemKills = recordedKills
 
@@ -433,8 +498,6 @@ export const resolveActions = (
 export interface SanitizeOptions {
   // 相手の視覚的な位置を上書きする (action フェーズ中に「相手の即時移動」を隠すために使用)
   opponentVisiblePosition?: Position
-  // 相手の hasMovedThisTurn を隠す (action フェーズ中に移動の有無自体を秘匿)
-  hideOpponentHasMoved?: boolean
 }
 
 export const sanitizeStateForPlayer = (
@@ -456,7 +519,6 @@ export const sanitizeStateForPlayer = (
         handCount: opponentEntry[1].hand.length,
         deckRemaining: opponentEntry[1].deckRemaining,
         functionUsesRemaining: opponentEntry[1].functionUsesRemaining,
-        hasMovedThisTurn: opts?.hideOpponentHasMoved ? false : opponentEntry[1].hasMovedThisTurn,
       }
     : {
         id: '',
@@ -467,7 +529,6 @@ export const sanitizeStateForPlayer = (
         handCount: 0,
         deckRemaining: 0,
         functionUsesRemaining: MAX_FUNCTION_USES,
-        hasMovedThisTurn: false,
       }
 
   return {

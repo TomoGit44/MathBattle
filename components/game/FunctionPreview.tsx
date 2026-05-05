@@ -21,9 +21,10 @@ const getItemLabel = (entry: FunctionSequenceEntry, hand: HandItem[]): string =>
   const item = hand[entry.index]
   if (!item) return '?'
   switch (item.type) {
-    case 'number': return String(item.value)
+    case 'number': return Number.isFinite(item.value) ? String(item.value) : '∞'
     case 'operator': return item.operator
-    case 'token': return String(item.value)
+    case 'token': return Number.isFinite(item.value) ? String(item.value) : '∞'
+    case 'move': return '?'
   }
 }
 
@@ -42,6 +43,8 @@ const getItemStyle = (entry: FunctionSequenceEntry, hand: HandItem[]): string =>
       return `${base} border-op-mul-border bg-op-mul-bg text-op-mul`
     case 'token':
       return `${base} border-success bg-op-add-bg text-op-add`
+    case 'move':
+      return `${base} border-line bg-bg-elev text-text-mute`
   }
 }
 

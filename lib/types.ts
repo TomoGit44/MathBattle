@@ -1,7 +1,10 @@
 // --- カード ---
+export type Direction = 'up' | 'down' | 'left' | 'right'
 export type NumberCard = { type: 'number'; value: number }
 export type OperatorCard = { type: 'operator'; operator: '+' | '-' | '×' | '÷' }
-export type Card = NumberCard | OperatorCard
+// 移動カード: 使用すると即時にプレイヤーが指定方向に動く。1枚ごとに方向が固定。
+export type MoveCard = { type: 'move'; direction: Direction }
+export type Card = NumberCard | OperatorCard | MoveCard
 
 // 計算結果として手札に残る数値トークン
 export type NumberToken = { type: 'token'; value: number }
@@ -52,8 +55,14 @@ export interface FunctionCurve {
 }
 
 // --- フィールド上のアイテム ---
-// 撃破した側がそのカードを獲得する。今は4演算子のみだが今後拡張予定
-export type ItemKind = '+' | '-' | '×' | '÷'
+// 撃破/接触で獲得できるアイテム。
+// '+' '-' '×' '÷' は対応する演算子1枚を獲得。
+// 'pack' は演算子パック: +/-/×/÷ 4種を一括で獲得 (手札の空きが足りなければ入る分だけ)。
+// 'heal' は回復: HP を [healAmountMin, healAmountMax] の乱数だけ回復 (上限は初期HP)。
+export type ItemKind = '+' | '-' | '×' | '÷' | 'pack' | 'heal'
+
+// 演算子のみのカード種別 (pack/heal を除く)
+export type OperatorItemKind = '+' | '-' | '×' | '÷'
 
 export interface FieldItem {
   id: string
@@ -65,11 +74,10 @@ export interface FieldItem {
 }
 
 // --- アクション ---
-// move/calculate は即時適用される。attack/function/skip は「メインアクション」で、
-// 両プレイヤーが submit するとターンが解決される。
+// use_move_card / calculate は即時適用 (回数制限なし)。
+// attack/function/skip は「メインアクション」で、両プレイヤーが submit するとターンが解決される。
 export type Action =
-  | { type: 'move'; direction: 'up' | 'down' | 'left' | 'right' }
-  | { type: 'skip_move' }  // 移動フェーズで「移動しない」を選択 (即時処理)
+  | { type: 'use_move_card'; handIndex: number }
   | { type: 'calculate'; cardIndices: number[] }
   | { type: 'attack'; handIndex: number }
   | { type: 'function'; cardIndices: number[]; xPositions: number[] }
@@ -85,7 +93,6 @@ export interface PlayerState {
   hand: HandItem[]
   deckRemaining: number
   functionUsesRemaining: number
-  hasMovedThisTurn: boolean  // このターンに移動済みか (各ターン1回だけ)
 }
 
 // --- ゲーム ---
@@ -107,8 +114,11 @@ export interface GameSettings {
   mathYMax: number       // 数学座標の y 上端 (下端は -mathYMax、アスペクト比から導出)
   pixelsPerUnit: number  // 1 数学単位あたりのピクセル数
   itemSize: number       // px (アイテムの当たり判定の直径)
-  itemSpawnRate: number  // 0.0〜1.0 (毎ターン開始時に新アイテムを生成する確率)
+  // 種別ごとの絶対出現確率 (毎ターン開始時の試行確率)。合計 > 1 の場合は内部的にクランプ。
+  itemSpawnRates: Record<ItemKind, number>
   maxItems: number       // フィールド上の同時存在アイテム数の上限
+  healAmountMin: number  // heal アイテム獲得時の最小回復量
+  healAmountMax: number  // heal アイテム獲得時の最大回復量
 }
 
 export interface GameState {
@@ -132,7 +142,6 @@ export interface SanitizedPlayerState {
   handCount: number
   deckRemaining: number
   functionUsesRemaining: number
-  hasMovedThisTurn: boolean
 }
 
 // --- クライアントに送るゲーム状態 ---
@@ -162,15 +171,20 @@ export interface TurnResult {
   bulletSnapshots: BulletSnapshot[]
   playerPositions: Record<string, Position>
   curveDamages: Record<string, number>
+  // 関数カーブに関するイベント (打ち消し合いなど)。表示用テキスト。
+  curveEvents?: string[]
   // 計算で素数弾 (10以上の素数) が合成されたときの値 (プレイヤーIDごと)
   primeSynthesis?: Record<string, number>
   // 撃破されたアイテム (UI 表示・ログ用)
-  itemKills?: Array<{ itemId: string; kind: ItemKind; killerId: string; awarded: boolean }>
+  // awardedCount: 実際に手札へ追加できた演算子カードの枚数。通常アイテムは 0|1、pack は 0〜4
+  itemKills?: Array<{ itemId: string; kind: ItemKind; killerId: string; awardedCount: number }>
+  // 接触で拾得されたアイテム (移動アクションで触れたとき発生)
+  itemPickups?: Array<{ itemId: string; kind: ItemKind; pickerId: string; awardedCount: number }>
 }
 
 // --- WebSocket メッセージ (Client → Server) ---
 export type ClientMessage =
-  | { type: 'join'; name: string }
+  | { type: 'join'; name: string; deck?: Card[] }
   | { type: 'action'; action: Action }
 
 // --- WebSocket メッセージ (Server → Client) ---

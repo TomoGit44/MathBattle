@@ -1,5 +1,37 @@
 import type { HandItem, FunctionExpressionItem, FunctionCurve } from './types'
 
+// 数学的に等価かどうかで2つの式を比較する。
+// number と token は値が同じなら同一視する (合成済みトークンも同じ係数なら同じ関数)。
+export const expressionsEqual = (
+  a: FunctionExpressionItem[],
+  b: FunctionExpressionItem[]
+): boolean => {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i]
+    const bi = b[i]
+    if (ai.type === 'variable' && bi.type === 'variable') continue
+    if ((ai.type === 'number' || ai.type === 'token') && (bi.type === 'number' || bi.type === 'token')) {
+      if ((ai.value ?? 0) !== (bi.value ?? 0)) return false
+      continue
+    }
+    if (ai.type === 'operator' && bi.type === 'operator' && ai.operator === bi.operator) continue
+    return false
+  }
+  return true
+}
+
+// 同じ式同士をハッシュ的にまとめるためのキー。expressionsEqual と同じ等価関係を表現する。
+export const expressionKey = (expr: FunctionExpressionItem[]): string =>
+  expr
+    .map((it) => {
+      if (it.type === 'variable') return 'x'
+      if (it.type === 'operator') return `o:${it.operator}`
+      // number / token を同一視
+      return `n:${it.value ?? 0}`
+    })
+    .join('|')
+
 let curveIdCounter = 0
 
 /**
@@ -71,6 +103,13 @@ export const validateFunctionExpression = (
     }
     if (usedSet.has(idx)) {
       return { valid: false, error: `手札インデックス ${idx} が重複しています` }
+    }
+    const item = hand[idx]
+    if (
+      (item.type === 'number' || item.type === 'token') &&
+      !Number.isFinite(item.value)
+    ) {
+      return { valid: false, error: '無限 (∞) は関数に使えません' }
     }
     usedSet.add(idx)
   }

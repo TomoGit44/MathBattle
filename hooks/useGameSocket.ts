@@ -1,17 +1,21 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Action, ClientGameState, ServerMessage } from '@/lib/types'
+import type { Action, Card, ClientGameState, ServerMessage } from '@/lib/types'
+import { encodeMessage, decodeMessage } from '@/lib/json-codec'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
-export const useGameSocket = (roomId: string, playerName: string) => {
+export const useGameSocket = (roomId: string, playerName: string, deck?: Card[]) => {
   const [gameState, setGameState] = useState<ClientGameState | null>(null)
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [error, setError] = useState<string | null>(null)
   const [isWaiting, setIsWaiting] = useState(false)
   const [gameOverWinnerId, setGameOverWinnerId] = useState<string | null | undefined>(undefined)
   const socketRef = useRef<WebSocket | null>(null)
+  // open ハンドラ内で参照する用。再接続を防ぐため deps には入れない。
+  const deckRef = useRef<Card[] | undefined>(deck)
+  deckRef.current = deck
 
   useEffect(() => {
     // 接続URL解決の優先順位:
@@ -35,11 +39,11 @@ export const useGameSocket = (roomId: string, playerName: string) => {
 
     socket.addEventListener('open', () => {
       setStatus('connected')
-      socket.send(JSON.stringify({ type: 'join', name: playerName }))
+      socket.send(encodeMessage({ type: 'join', name: playerName, deck: deckRef.current }))
     })
 
     socket.addEventListener('message', (event) => {
-      const msg: ServerMessage = JSON.parse(event.data)
+      const msg = decodeMessage<ServerMessage>(event.data)
 
       switch (msg.type) {
         case 'waiting':
@@ -76,7 +80,7 @@ export const useGameSocket = (roomId: string, playerName: string) => {
   const sendAction = useCallback((action: Action) => {
     const socket = socketRef.current
     if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'action', action }))
+      socket.send(encodeMessage({ type: 'action', action }))
     }
   }, [])
 

@@ -9,15 +9,16 @@ import {
   resolveActions,
   sanitizeStateForPlayer,
   applyImmediateMove,
-  markMoveSkipped,
 } from '../lib/game-logic'
-import { createDefaultDeck } from '../lib/deck'
+import { createDefaultDeck, sanitizeDeck } from '../lib/deck'
 import { checkGameOver } from '../lib/damage'
 import { tryApplyCalculation, calcErrorMessage } from '../lib/calc-engine'
 import { isPrimeBullet } from '../lib/prime'
 import { TURN_DELAY_MS } from '../lib/constants'
 import { loadConfig, isUnlimited, toGameSettings } from '../lib/config'
+import { encodeMessage, decodeMessage } from '../lib/json-codec'
 import type { TurnResult } from '../lib/types'
+import type { ItemPickup } from '../lib/items'
 
 const CONFIG = loadConfig()
 const GAME_SETTINGS = toGameSettings(CONFIG)
@@ -38,6 +39,8 @@ interface Room {
   actionTimer: ReturnType<typeof setTimeout> | null
   // ターン開始時の各プレイヤー位置 (action フェーズ中の即時移動を相手に対して秘匿するため)
   turnStartPositions: Map<string, Position>
+  // 即時アクション (移動・ドロー直後) で発生したアイテム拾得を蓄積し、次の TurnResult で公開する
+  pendingItemPickups: ItemPickup[]
 }
 
 const rooms = new Map<string, Room>()
@@ -51,6 +54,7 @@ const createRoom = (roomId: string): Room => ({
   players: new Map(),
   actionTimer: null,
   turnStartPositions: new Map(),
+  pendingItemPickups: [],
 })
 
 // ターン開始時の位置スナップショットを記録 (action フェーズ中の相手秘匿表示用)
@@ -62,16 +66,16 @@ const captureTurnStartPositions = (room: Room) => {
 }
 
 // 指定 viewerId 視点でサニタイズする際のオプションを構築する。
-// action フェーズ中で、相手が今ターン移動済みなら、相手の位置をターン開始時のものに差し替える。
+// action フェーズ中は相手の現在位置を常にターン開始時の位置で上書きする
+// (移動カードによる即時移動を相手から見えないようにするため)。
 const sanitizeOptsFor = (room: Room, viewerId: string) => {
   if (room.gameState.phase !== 'action') return undefined
   const opponentEntry = Object.entries(room.gameState.players).find(([id]) => id !== viewerId)
   if (!opponentEntry) return undefined
-  const [oppId, oppState] = opponentEntry
-  if (!oppState.hasMovedThisTurn) return undefined
+  const [oppId] = opponentEntry
   const original = room.turnStartPositions.get(oppId)
   if (!original) return undefined
-  return { opponentVisiblePosition: original, hideOpponentHasMoved: true }
+  return { opponentVisiblePosition: original }
 }
 
 const getOrCreateRoom = (roomId: string): Room => {
@@ -85,7 +89,7 @@ const getOrCreateRoom = (roomId: string): Room => {
 
 const send = (ws: WebSocket, msg: ServerMessage) => {
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg))
+    ws.send(encodeMessage(msg))
   }
 }
 
@@ -132,6 +136,9 @@ const startNewTurn = (room: Room) => {
   room.gameState = result.state
   room.decks = result.decks
   room.pendingActions.clear()
+  if (result.pickups.length > 0) {
+    room.pendingItemPickups.push(...result.pickups)
+  }
   // ターン開始位置をスナップショット (相手側の移動秘匿表示用)
   captureTurnStartPositions(room)
   sendStateToAll(room)
@@ -150,6 +157,15 @@ const resolveRound = (room: Room) => {
   const { state, turnResult } = resolveActions(room.gameState, actions)
   room.gameState = state
 
+  // ターン中に発生した接触拾得を TurnResult に反映してから配信
+  if (room.pendingItemPickups.length > 0) {
+    turnResult.itemPickups = [
+      ...(turnResult.itemPickups ?? []),
+      ...room.pendingItemPickups,
+    ]
+    room.pendingItemPickups = []
+  }
+
   sendStateToAll(room, turnResult)
 
   if (room.gameState.phase === 'gameover') return
@@ -159,7 +175,7 @@ const resolveRound = (room: Room) => {
   }, TURN_DELAY_MS)
 }
 
-const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => {
+const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, deck?: Card[]) => {
   if (room.playerOrder.includes(connId)) return
   if (room.playerOrder.length >= 2) {
     send(ws, { type: 'error', message: 'ルームが満員です' })
@@ -169,7 +185,8 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
   const isFirst = room.playerOrder.length === 0
   room.playerOrder.push(connId)
   room.players.set(connId, { ws, id: connId, name })
-  room.decks.set(connId, createDefaultDeck())
+  // 不正なデッキはデフォルトに差し替え (サーバー権威)
+  room.decks.set(connId, deck ? sanitizeDeck(deck) : createDefaultDeck())
   room.gameState = addPlayer(room.gameState, connId, name, isFirst)
 
   if (room.playerOrder.length < 2) {
@@ -185,6 +202,9 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
   const drawn = executeDraw(room.gameState, room.decks)
   room.gameState = drawn.state
   room.decks = drawn.decks
+  if (drawn.pickups.length > 0) {
+    room.pendingItemPickups.push(...drawn.pickups)
+  }
 
   // ゲーム開始時のターン開始位置を記録
   captureTurnStartPositions(room)
@@ -200,56 +220,24 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
 
   if (!room.playerOrder.includes(connId)) return
 
-  // 移動アクションは即時処理 (1ターン1回)
-  if (action.type === 'move') {
-    const player = room.gameState.players[connId]
-    if (!player) return
-    if (player.hasMovedThisTurn) {
-      send(ws, { type: 'error', message: '今ターンはすでに移動済みです' })
-      return
-    }
-    const next = applyImmediateMove(room.gameState, connId, action.direction)
+  // 移動カード使用は即時処理 (回数制限なし)
+  if (action.type === 'use_move_card') {
+    const next = applyImmediateMove(room.gameState, connId, action.handIndex)
     if (!next) {
-      send(ws, { type: 'error', message: '移動できません' })
+      send(ws, { type: 'error', message: '移動カードが選択されていません' })
       return
     }
-    room.gameState = next
+    room.gameState = next.state
+    if (next.pickups.length > 0) {
+      room.pendingItemPickups.push(...next.pickups)
+    }
 
-    // 移動した本人にだけ通知。相手には何も送らない (移動の有無自体を秘匿するため)。
+    // 移動した本人にだけ通知。相手には送らない (移動を秘匿)。
     send(ws, {
       type: 'gameState',
       state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
     })
     return
-  }
-
-  // 移動フェーズでの「移動しない」: hasMovedThisTurn だけ立てる即時処理
-  if (action.type === 'skip_move') {
-    const player = room.gameState.players[connId]
-    if (!player) return
-    if (player.hasMovedThisTurn) {
-      send(ws, { type: 'error', message: '今ターンはすでに移動処理済みです' })
-      return
-    }
-    const next = markMoveSkipped(room.gameState, connId)
-    if (!next) return
-    room.gameState = next
-    // 自分のクライアントには通知 (UI が phase 2 に進む)
-    send(ws, {
-      type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
-    })
-    // 相手には通知しない (移動フェーズの選択を秘匿)
-    return
-  }
-
-  // メインアクションの前段として、必ず移動フェーズが完了している必要がある
-  {
-    const player = room.gameState.players[connId]
-    if (player && !player.hasMovedThisTurn) {
-      send(ws, { type: 'error', message: '先に移動フェーズを完了してください (移動 or 移動しない)' })
-      return
-    }
   }
 
   // 計算アクションは即時処理 (1ターンに何度でも可能)
@@ -412,7 +400,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     let parsed: ClientMessage
     try {
-      parsed = JSON.parse(data.toString())
+      parsed = decodeMessage<ClientMessage>(data.toString())
     } catch {
       send(ws, { type: 'error', message: '無効なメッセージ形式' })
       return
@@ -423,7 +411,7 @@ wss.on('connection', (ws, req) => {
       switch (parsed.type) {
         case 'join':
           if (typeof parsed.name === 'string') {
-            handleJoin(room, ws, connId, parsed.name)
+            handleJoin(room, ws, connId, parsed.name, parsed.deck)
           }
           break
         case 'action':
