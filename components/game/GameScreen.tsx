@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import type { Action, ClientGameState } from '@/lib/types'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import type { Action, ClientGameState, Position } from '@/lib/types'
 import { GameField } from './GameField'
 import { HpBar } from './HpBar'
 import { ActionPanel } from './ActionPanel'
@@ -27,17 +27,42 @@ const phaseLabel = (phase: string): string => {
 }
 
 export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
-  const { me, opponent, phase, turn, turnResult } = gameState
+  const { me, opponent, phase, turn, turnResult, fieldSize, settings } = gameState
   const [actionKey, setActionKey] = useState(0)
   const [actionLog, setActionLog] = useState<LogEntry[]>([])
   const [logOpen, setLogOpen] = useState(false)
+  const [movePreviewIndex, setMovePreviewIndex] = useState<number | null>(null)
 
   // アクションフェーズが変わるたびにActionPanelをリセット
   useEffect(() => {
     if (phase === 'action') {
       setActionKey((k) => k + 1)
     }
+    // フェーズが action 以外になったらゴーストも消す
+    if (phase !== 'action') setMovePreviewIndex(null)
   }, [phase, turn])
+
+  // 移動プレビュー → クランプ済み目的地を計算
+  const movePreviewDestination: Position | null = useMemo(() => {
+    if (movePreviewIndex == null) return null
+    const card = me.hand[movePreviewIndex]
+    if (!card || card.type !== 'move') return null
+    let { x, y } = me.position
+    const d = settings.moveDistance
+    if (card.direction === 'up') y -= d
+    else if (card.direction === 'down') y += d
+    else if (card.direction === 'left') x -= d
+    else if (card.direction === 'right') x += d
+    const r = settings.playerRadius
+    return {
+      x: Math.max(r, Math.min(fieldSize.width - r, x)),
+      y: Math.max(r, Math.min(fieldSize.height - r, y)),
+    }
+  }, [movePreviewIndex, me.hand, me.position, settings.moveDistance, settings.playerRadius, fieldSize])
+
+  const handleMovePreview = useCallback((index: number | null) => {
+    setMovePreviewIndex(index)
+  }, [])
 
   // 新ターンの結果を見たらログに追記 (ターン番号で重複防止)
   useEffect(() => {
@@ -87,7 +112,14 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
       </div>
 
       {/* フィールド */}
-      <GameField gameState={gameState} />
+      <GameField
+        gameState={gameState}
+        movePreview={
+          phase === 'action' && movePreviewDestination
+            ? { from: me.position, to: movePreviewDestination }
+            : null
+        }
+      />
 
       {/* ターン結果 (素数合成時はaction中でも演出表示) */}
       {turnResult &&
@@ -105,6 +137,8 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           onSubmit={sendAction}
           disabled={phase !== 'action'}
           functionUsesRemaining={me.functionUsesRemaining}
+          settings={settings}
+          onMovePreview={handleMovePreview}
         />
       </div>
 

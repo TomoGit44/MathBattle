@@ -1,30 +1,46 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
-import type { Action, HandItem } from '@/lib/types'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import type { Action, HandItem, GameSettings, Direction } from '@/lib/types'
 import { HandDisplay } from './HandDisplay'
 import { FunctionPreview, type FunctionSequenceEntry } from './FunctionPreview'
 import { validateCalculation, calcErrorMessage } from '@/lib/calc-engine'
+import { FIELD_WIDTH, FIELD_HEIGHT } from '@/lib/constants'
 
-type ActionMode = null | 'calculate' | 'attack' | 'function'
+type ActionMode = null | 'calculate' | 'attack' | 'function' | 'move'
 
 interface ActionPanelProps {
   hand: HandItem[]
   onSubmit: (action: Action) => void
   disabled: boolean
   functionUsesRemaining: number
+  settings: GameSettings
+  onMovePreview?: (handIndex: number | null) => void
 }
 
-export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }: ActionPanelProps) => {
+const dirArrow = (d: Direction): string =>
+  ({ up: '↑', down: '↓', left: '←', right: '→' }[d])
+
+const dirLabel = (d: Direction): string =>
+  ({ up: '上', down: '下', left: '左', right: '右' }[d])
+
+export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, settings, onMovePreview }: ActionPanelProps) => {
   const [mode, setMode] = useState<ActionMode>(null)
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
   const [submitted, setSubmitted] = useState(false)
   const [functionSequence, setFunctionSequence] = useState<FunctionSequenceEntry[]>([])
+  const [movePreviewIndex, setMovePreviewIndex] = useState<number | null>(null)
+
+  // 親に preview 状態を通知 (フィールド上のゴースト表示用)
+  useEffect(() => {
+    onMovePreview?.(movePreviewIndex)
+  }, [movePreviewIndex, onMovePreview])
 
   const reset = useCallback(() => {
     setMode(null)
     setSelectedIndices(new Set())
     setFunctionSequence([])
+    setMovePreviewIndex(null)
   }, [])
 
   const toggleCard = useCallback((index: number) => {
@@ -66,9 +82,19 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
   }, [onSubmit, reset])
 
   // 移動カード使用は即時処理 (ターン終了しない・回数制限なし)
-  const useMoveCard = useCallback((index: number) => {
-    onSubmit({ type: 'use_move_card', handIndex: index })
-  }, [onSubmit])
+  // クリックでまずプレビュー → ユーザー確定で送信
+  const startMovePreview = useCallback((index: number) => {
+    setMode('move')
+    setMovePreviewIndex(index)
+  }, [])
+
+  const confirmMoveCard = useCallback(() => {
+    if (movePreviewIndex == null) return
+    const card = hand[movePreviewIndex]
+    if (!card || card.type !== 'move') return
+    onSubmit({ type: 'use_move_card', handIndex: movePreviewIndex })
+    reset()
+  }, [movePreviewIndex, hand, onSubmit, reset])
 
   // 計算は即時処理。submitted=true にせず、選択だけクリアして連続入力を許可
   const submitCalculate = useCallback(() => {
@@ -199,7 +225,20 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
           selectedIndices={new Set()}
           onToggle={(index) => {
             if (nonMoveDisabledIndices.has(index)) return
-            useMoveCard(index)
+            startMovePreview(index)
+          }}
+          selectable={true}
+          disabledIndices={nonMoveDisabledIndices}
+        />
+      )}
+      {mode === 'move' && (
+        <HandDisplay
+          hand={hand}
+          selectedIndices={movePreviewIndex != null ? new Set([movePreviewIndex]) : new Set()}
+          onToggle={(index) => {
+            if (nonMoveDisabledIndices.has(index)) return
+            // 別の移動カードに切替
+            setMovePreviewIndex(index)
           }}
           selectable={true}
           disabledIndices={nonMoveDisabledIndices}
@@ -230,10 +269,58 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining }:
         />
       )}
 
-      {/* メインアクション選択。移動カードは手札から直接クリックで即時使用 (回数制限なし)。 */}
+      {/* 移動プレビュー (確定するまで実際には動かない) */}
+      {mode === 'move' && (() => {
+        const card = movePreviewIndex != null ? hand[movePreviewIndex] : null
+        const direction = card?.type === 'move' ? card.direction : null
+        const distPx = settings.moveDistance
+        const isVertical = direction === 'up' || direction === 'down'
+        const axisMax = isVertical ? settings.mathYMax : settings.mathXMax
+        const fieldSpan = isVertical ? FIELD_HEIGHT : FIELD_WIDTH
+        const distMath = (distPx * (2 * axisMax)) / fieldSpan
+        return (
+          <div className="flex flex-col gap-2 items-center">
+            <div className="flex gap-2 justify-center items-center flex-wrap">
+              <span className="text-sm text-text-dim">
+                {direction ? (
+                  <>
+                    <span className="text-axis-origin font-bold text-lg align-middle">
+                      {dirArrow(direction)}
+                    </span>{' '}
+                    {dirLabel(direction)}に <span className="font-bold text-text">{distMath.toFixed(2)}</span>
+                    <span className="text-text-faint"> 単位</span>
+                    <span className="text-text-faint"> ({distPx}px)</span>
+                    {' '}移動
+                  </>
+                ) : (
+                  '移動カードを選択'
+                )}
+              </span>
+              <button
+                onClick={confirmMoveCard}
+                disabled={movePreviewIndex == null}
+                className="px-4 py-2 bg-axis-origin/20 active:bg-axis-origin/30 hover:bg-axis-origin/30 border border-axis-origin/50 text-axis-origin disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
+              >
+                移動を確定
+              </button>
+              <button
+                onClick={reset}
+                className="px-3 py-2 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded-lg text-sm touch-manipulation transition-colors duration-[var(--dur-fast)]"
+              >
+                キャンセル
+              </button>
+            </div>
+            <p className="text-xs text-text-faint text-center">
+              フィールド上のゴーストが移動先。別の方向カードをクリックで切替できます。
+            </p>
+          </div>
+        )
+      })()}
+
+      {/* メインアクション選択。移動カードは手札からクリックでプレビュー → 確定で実行 (回数制限なし)。 */}
       {mode === null && (
         <div className="flex flex-col items-center gap-2">
-          <div className="text-xs text-text-faint">移動は手札の矢印カードをクリック (回数制限なし)</div>
+          <div className="text-xs text-text-faint">移動は手札の矢印カードをクリック (プレビュー → 確定)</div>
           <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
             <button
               onClick={() => setMode('calculate')}

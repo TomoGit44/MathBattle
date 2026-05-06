@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { MouseEvent } from 'react'
-import type { ClientGameState, Bullet, FunctionCurve, FieldItem } from '@/lib/types'
+import type { ClientGameState, Bullet, FunctionCurve, FieldItem, Position } from '@/lib/types'
 import { ANIMATION_DURATION_MS, GRID_SPACING_X, GRID_SPACING_Y } from '@/lib/constants'
 import { predictTrajectories } from '@/lib/trajectory'
 import { Player } from './Player'
@@ -19,9 +19,10 @@ import { isHitStopped, flash } from '@/lib/effects'
 
 interface GameFieldProps {
   gameState: ClientGameState
+  movePreview?: { from: Position; to: Position } | null
 }
 
-export const GameField = ({ gameState }: GameFieldProps) => {
+export const GameField = ({ gameState, movePreview }: GameFieldProps) => {
   const { me, opponent, bullets, curves, items, turnResult, fieldSize } = gameState
   const phase = gameState.phase
 
@@ -366,6 +367,47 @@ export const GameField = ({ gameState }: GameFieldProps) => {
         playerRadius={settings.playerRadius}
         fieldSize={fieldSize}
       />
+
+      {/* 移動プレビュー: 現在位置 → 目的地のラインとゴースト */}
+      {movePreview && isAction && (
+        <>
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox={`0 0 ${fieldSize.width} ${fieldSize.height}`}
+            preserveAspectRatio="none"
+          >
+            <line
+              x1={movePreview.from.x}
+              y1={movePreview.from.y}
+              x2={movePreview.to.x}
+              y2={movePreview.to.y}
+              stroke="var(--color-axis-origin)"
+              strokeWidth={2}
+              strokeDasharray="6 4"
+              opacity={0.7}
+            />
+          </svg>
+          {(() => {
+            const left = (movePreview.to.x / fieldSize.width) * 100
+            const top = (movePreview.to.y / fieldSize.height) * 100
+            const widthPct = ((settings.playerRadius * 2) / fieldSize.width) * 100
+            const heightPct = ((settings.playerRadius * 2) / fieldSize.height) * 100
+            return (
+              <div
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-dashed border-axis-origin pointer-events-none"
+                style={{
+                  left: `${left}%`,
+                  top: `${top}%`,
+                  width: `${widthPct}%`,
+                  height: `${heightPct}%`,
+                  background: 'rgba(103, 232, 249, 0.12)',
+                  boxShadow: '0 0 12px rgba(103, 232, 249, 0.4)',
+                }}
+              />
+            )
+          })()}
+        </>
+      )}
 
       {/* 弾 */}
       {displayBullets.map((bullet) => (
