@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { Bullet, FunctionCurve, FieldItem, GameSettings } from '@/lib/types'
 import { isPrimeBullet } from '@/lib/prime'
 import {
@@ -30,20 +31,56 @@ const speedQualitative = (value: number): string => {
 }
 
 export const DetailTooltip = ({ target, anchor, settings, onClose }: DetailTooltipProps) => {
-  // 縦方向: アンカーが下半分なら上に出す、上半分なら下に出す
-  const placeAbove = anchor.topPct > 50
-  // 横方向: 左端/右端でクランプ (ツールチップ中心をアンカー中心に合わせるが端で押し戻す)
-  const clampedLeft = Math.max(15, Math.min(85, anchor.leftPct))
+  const tipRef = useRef<HTMLDivElement>(null)
+  // 実寸で親 (フィールド) 内に収まるように位置を計算
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const el = tipRef.current
+    if (!el) return
+    const parent = el.offsetParent as HTMLElement | null
+    if (!parent) return
+
+    const compute = () => {
+      const parentRect = parent.getBoundingClientRect()
+      const tipRect = el.getBoundingClientRect()
+      const margin = 6
+      const gap = 14
+
+      const anchorX = (anchor.leftPct / 100) * parentRect.width
+      const anchorY = (anchor.topPct / 100) * parentRect.height
+      const tipW = tipRect.width
+      const tipH = tipRect.height
+
+      // 縦: 下半分のアンカーは上に出すのを優先、上半分は下を優先。収まらなければ反対側へ。
+      const preferAbove = anchor.topPct > 50
+      let top = preferAbove ? anchorY - gap - tipH : anchorY + gap
+      if (preferAbove && top < margin) top = anchorY + gap
+      if (!preferAbove && top + tipH > parentRect.height - margin) top = anchorY - gap - tipH
+      top = Math.max(margin, Math.min(parentRect.height - tipH - margin, top))
+
+      // 横: アンカーを中心に、両端でクランプ
+      let left = anchorX - tipW / 2
+      left = Math.max(margin, Math.min(parentRect.width - tipW - margin, left))
+
+      setPos({ left, top })
+    }
+
+    compute()
+    const ro = new ResizeObserver(compute)
+    ro.observe(el)
+    ro.observe(parent)
+    return () => ro.disconnect()
+  }, [anchor.leftPct, anchor.topPct, target])
 
   return (
     <div
-      className="absolute z-30 w-[180px] bg-bg-mid/95 border border-line-strong rounded-md p-2 text-xs text-text-mid pointer-events-auto"
+      ref={tipRef}
+      className="absolute z-30 w-[180px] max-w-[calc(100%-12px)] bg-bg-mid/95 border border-line-strong rounded-md p-2 text-xs text-text-mid pointer-events-auto"
       style={{
-        left: `${clampedLeft}%`,
-        top: `${anchor.topPct}%`,
-        transform: placeAbove
-          ? 'translate(-50%, calc(-100% - 14px))'
-          : 'translate(-50%, 14px)',
+        left: pos ? `${pos.left}px` : `${anchor.leftPct}%`,
+        top: pos ? `${pos.top}px` : `${anchor.topPct}%`,
+        visibility: pos ? 'visible' : 'hidden',
         boxShadow: '0 4px 24px rgba(2,4,12,0.6), 0 0 0 1px var(--color-line-soft)',
       }}
       onClick={(e) => e.stopPropagation()}
