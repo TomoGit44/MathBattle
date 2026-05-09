@@ -16,7 +16,19 @@
 
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { FIELD_WIDTH, FIELD_HEIGHT, ITEM_SIZE, DEFAULT_ITEM_SPAWN_RATES, DEFAULT_HEAL_AMOUNT_MIN, DEFAULT_HEAL_AMOUNT_MAX, MAX_ITEMS } from './constants'
+import {
+  FIELD_WIDTH,
+  FIELD_HEIGHT,
+  ITEM_SIZE,
+  DEFAULT_ITEM_SPAWN_RATES,
+  DEFAULT_HEAL_AMOUNT_MIN,
+  DEFAULT_HEAL_AMOUNT_MAX,
+  MAX_ITEMS,
+  DRAW_COUNT,
+  MAX_HAND_SIZE,
+  MIN_DECK_SIZE,
+  MAX_DECK_SIZE,
+} from './constants'
 import type { GameSettings, ItemKind } from './types'
 
 export type { GameSettings }
@@ -34,6 +46,10 @@ export interface GameConfig {
   maxItems: number          // フィールド上の同時存在上限
   healAmountMin: number     // heal 取得時の最小回復量
   healAmountMax: number     // heal 取得時の最大回復量
+  drawCount: number         // 1ターンにドローする枚数
+  maxHandSize: number       // 手札の上限枚数
+  minDeckSize: number       // デッキの下限枚数 (構築時の最小値)
+  maxDeckSize: number       // デッキの上限枚数 (構築時の最大値)
 }
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -48,6 +64,10 @@ const DEFAULT_CONFIG: GameConfig = {
   maxItems: MAX_ITEMS,
   healAmountMin: DEFAULT_HEAL_AMOUNT_MIN,
   healAmountMax: DEFAULT_HEAL_AMOUNT_MAX,
+  drawCount: DRAW_COUNT,
+  maxHandSize: MAX_HAND_SIZE,
+  minDeckSize: MIN_DECK_SIZE,
+  maxDeckSize: MAX_DECK_SIZE,
 }
 
 const ITEM_KIND_KEYS: ItemKind[] = ['+', '-', '×', '÷', 'pack', 'heal']
@@ -126,6 +146,24 @@ const validate = (raw: unknown): GameConfig => {
     cfg.healAmountMax = cfg.healAmountMin
   }
 
+  // ドロー枚数 / 手札上限 / デッキサイズ。すべて非負整数で受け取る。
+  if (isNonNegativeNumber(obj.drawCount) && Number.isInteger(obj.drawCount)) {
+    cfg.drawCount = obj.drawCount
+  }
+  if (isPositiveNumber(obj.maxHandSize) && Number.isInteger(obj.maxHandSize)) {
+    cfg.maxHandSize = obj.maxHandSize
+  }
+  if (isPositiveNumber(obj.minDeckSize) && Number.isInteger(obj.minDeckSize)) {
+    cfg.minDeckSize = obj.minDeckSize
+  }
+  if (isPositiveNumber(obj.maxDeckSize) && Number.isInteger(obj.maxDeckSize)) {
+    cfg.maxDeckSize = obj.maxDeckSize
+  }
+  // min > max の逆転は max を min に揃えて整合させる
+  if (cfg.maxDeckSize < cfg.minDeckSize) {
+    cfg.maxDeckSize = cfg.minDeckSize
+  }
+
   return cfg
 }
 
@@ -147,6 +185,10 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     maxItems: cfg.maxItems,
     healAmountMin: cfg.healAmountMin,
     healAmountMax: cfg.healAmountMax,
+    drawCount: cfg.drawCount,
+    maxHandSize: cfg.maxHandSize,
+    minDeckSize: cfg.minDeckSize,
+    maxDeckSize: cfg.maxDeckSize,
   }
 }
 

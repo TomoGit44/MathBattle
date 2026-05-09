@@ -7,12 +7,12 @@
   "mathXMax": 2,
   "itemSize": 40,
   "itemSpawnRates": {
-    "+": 0.2,
-    "-": 0.2,
-    "×": 0.2,
-    "÷": 0.2,
-    "pack": 0.05,
-    "heal": 0.1
+    "+": 0.1,
+    "-": 0.1,
+    "×": 0.1,
+    "÷": 0.1,
+    "pack": 0.55,
+    "heal": 0.05
   },
   "maxItems": 5,
   "healAmountMin": 5,

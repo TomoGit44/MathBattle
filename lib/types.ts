@@ -119,6 +119,10 @@ export interface GameSettings {
   maxItems: number       // フィールド上の同時存在アイテム数の上限
   healAmountMin: number  // heal アイテム獲得時の最小回復量
   healAmountMax: number  // heal アイテム獲得時の最大回復量
+  drawCount: number      // 1ターンにドローする枚数
+  maxHandSize: number    // 手札の上限枚数
+  minDeckSize: number    // デッキの下限枚数 (デッキ構築時)
+  maxDeckSize: number    // デッキの上限枚数 (デッキ構築時)
 }
 
 export interface GameState {

@@ -6,6 +6,12 @@ import {
   MAX_SAME_CARD_COUNT,
 } from './constants'
 
+// デッキ検証時のサイズ制約。指定なしなら定数を使う。
+export interface DeckLimits {
+  minDeckSize?: number
+  maxDeckSize?: number
+}
+
 export const createDefaultDeck = (): Card[] => {
   return DEFAULT_DECK.map((card) => ({ ...card }))
 }
@@ -44,10 +50,12 @@ export type DeckError =
   | 'invalid_card'
   | 'not_array'
 
-export const validateDeck = (deck: unknown): DeckError | null => {
+export const validateDeck = (deck: unknown, limits?: DeckLimits): DeckError | null => {
+  const minSize = limits?.minDeckSize ?? MIN_DECK_SIZE
+  const maxSize = limits?.maxDeckSize ?? MAX_DECK_SIZE
   if (!Array.isArray(deck)) return 'not_array'
-  if (deck.length < MIN_DECK_SIZE) return 'too_small'
-  if (deck.length > MAX_DECK_SIZE) return 'too_large'
+  if (deck.length < minSize) return 'too_small'
+  if (deck.length > maxSize) return 'too_large'
 
   const counts = new Map<string, number>()
   for (const c of deck) {
@@ -60,10 +68,12 @@ export const validateDeck = (deck: unknown): DeckError | null => {
   return null
 }
 
-export const deckErrorMessage = (err: DeckError): string => {
+export const deckErrorMessage = (err: DeckError, limits?: DeckLimits): string => {
+  const minSize = limits?.minDeckSize ?? MIN_DECK_SIZE
+  const maxSize = limits?.maxDeckSize ?? MAX_DECK_SIZE
   switch (err) {
-    case 'too_small': return `カードを${MIN_DECK_SIZE}枚以上入れてください`
-    case 'too_large': return `カードは${MAX_DECK_SIZE}枚までです`
+    case 'too_small': return `カードを${minSize}枚以上入れてください`
+    case 'too_large': return `カードは${maxSize}枚までです`
     case 'too_many_same': return `同じカードは${MAX_SAME_CARD_COUNT}枚までです`
     case 'invalid_card': return 'デッキに無効なカードが含まれています'
     case 'not_array': return 'デッキ形式が不正です'
@@ -71,8 +81,8 @@ export const deckErrorMessage = (err: DeckError): string => {
 }
 
 // 検証済みデッキを返す。無効な場合はデフォルトデッキを返す (サーバーで使用)。
-export const sanitizeDeck = (deck: unknown): Card[] => {
-  if (validateDeck(deck) !== null) return createDefaultDeck()
+export const sanitizeDeck = (deck: unknown, limits?: DeckLimits): Card[] => {
+  if (validateDeck(deck, limits) !== null) return createDefaultDeck()
   return (deck as Card[]).map((c) => ({ ...c }))
 }
 

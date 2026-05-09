@@ -8,6 +8,9 @@ import { MIN_DECK_SIZE, MAX_DECK_SIZE, MAX_SAME_CARD_COUNT } from '@/lib/constan
 interface DeckBuilderProps {
   deck: Card[]
   onChange: (deck: Card[]) => void
+  // サーバーから取得した制限値。未指定なら定数(デフォルト)を使う
+  minDeckSize?: number
+  maxDeckSize?: number
 }
 
 const NUMBER_PALETTE: Card[] = Array.from({ length: 10 }, (_, i) => ({ type: 'number', value: i }))
@@ -52,17 +55,24 @@ const cardClass = (c: Card, dim?: boolean): string => {
   return `${base} ${tone} ${dim ? 'opacity-40 cursor-not-allowed' : ''}`
 }
 
-export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
+export const DeckBuilder = ({
+  deck,
+  onChange,
+  minDeckSize = MIN_DECK_SIZE,
+  maxDeckSize = MAX_DECK_SIZE,
+}: DeckBuilderProps) => {
+  const limits = useMemo(() => ({ minDeckSize, maxDeckSize }), [minDeckSize, maxDeckSize])
+
   const counts = useMemo(() => {
     const m = new Map<string, number>()
     for (const c of deck) m.set(cardKey(c), (m.get(cardKey(c)) ?? 0) + 1)
     return m
   }, [deck])
 
-  const validationError = useMemo(() => validateDeck(deck), [deck])
+  const validationError = useMemo(() => validateDeck(deck, limits), [deck, limits])
 
   const addCard = (c: Card) => {
-    if (deck.length >= MAX_DECK_SIZE) return
+    if (deck.length >= maxDeckSize) return
     if ((counts.get(cardKey(c)) ?? 0) >= MAX_SAME_CARD_COUNT) return
     onChange([...deck, { ...c }])
   }
@@ -83,7 +93,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
             validationError ? 'text-warn' : 'text-success'
           }`}
         >
-          {deck.length} / {MAX_DECK_SIZE} 枚
+          {deck.length} / {maxDeckSize} 枚
         </span>
       </div>
 
@@ -106,7 +116,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
       </div>
 
       {validationError && (
-        <p className="text-xs text-warn">⚠ {deckErrorMessage(validationError)}</p>
+        <p className="text-xs text-warn">⚠ {deckErrorMessage(validationError, limits)}</p>
       )}
 
       {/* 数字パレット */}
@@ -115,7 +125,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
         <div className="flex flex-wrap gap-1.5">
           {NUMBER_PALETTE.map((c) => {
             const used = counts.get(cardKey(c)) ?? 0
-            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= MAX_DECK_SIZE
+            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= maxDeckSize
             return (
               <button
                 key={cardKey(c)}
@@ -137,7 +147,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
         <div className="flex flex-wrap gap-1.5">
           {OPERATOR_PALETTE.map((c) => {
             const used = counts.get(cardKey(c)) ?? 0
-            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= MAX_DECK_SIZE
+            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= maxDeckSize
             return (
               <button
                 key={cardKey(c)}
@@ -159,7 +169,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
         <div className="flex flex-wrap gap-1.5">
           {MOVE_PALETTE.map((c) => {
             const used = counts.get(cardKey(c)) ?? 0
-            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= MAX_DECK_SIZE
+            const full = used >= MAX_SAME_CARD_COUNT || deck.length >= maxDeckSize
             return (
               <button
                 key={cardKey(c)}
@@ -191,7 +201,7 @@ export const DeckBuilder = ({ deck, onChange }: DeckBuilderProps) => {
       </div>
 
       <p className="text-[10px] text-text-faint">
-        {MIN_DECK_SIZE}〜{MAX_DECK_SIZE} 枚 / 同じカードは {MAX_SAME_CARD_COUNT} 枚まで。
+        {minDeckSize}〜{maxDeckSize} 枚 / 同じカードは {MAX_SAME_CARD_COUNT} 枚まで。
         数字カードと移動カード (4方向) はターン開始時に自動補充されます。
       </p>
     </div>

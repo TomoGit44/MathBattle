@@ -9,7 +9,7 @@ import { OpponentInfo } from './OpponentInfo'
 import { TurnResult } from './TurnResult'
 import { ActionLog, type LogEntry } from './ActionLog'
 import { LowHpVignette } from './LowHpVignette'
-import { MAX_HAND_SIZE, INITIAL_HP } from '@/lib/constants'
+import { INITIAL_HP } from '@/lib/constants'
 
 interface GameScreenProps {
   gameState: ClientGameState
@@ -108,7 +108,7 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
 
       {/* 相手情報 (相手のフィールド側に寄せる) */}
       <div className={`flex w-full ${me.facing === 'right' ? 'justify-end' : 'justify-start'}`}>
-        <OpponentInfo opponent={opponent} />
+        <OpponentInfo opponent={opponent} settings={settings} />
       </div>
 
       {/* フィールド */}
@@ -145,7 +145,7 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
       {/* 自分の情報 + ログボタン */}
       <div className="w-full flex items-center justify-between gap-2 text-xs text-text-faint mb-tabular">
         <span>
-          手札: <span className={me.hand.length >= MAX_HAND_SIZE ? 'text-error font-bold' : ''}>{me.hand.length}/{MAX_HAND_SIZE}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
+          手札: <span className={me.hand.length >= settings.maxHandSize ? 'text-error font-bold' : ''}>{me.hand.length}/{settings.maxHandSize}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
         </span>
         <button
           onClick={() => setLogOpen(true)}

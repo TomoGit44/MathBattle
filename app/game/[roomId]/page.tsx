@@ -17,7 +17,15 @@ const readPendingDeck = (): Card[] | undefined => {
     const raw = sessionStorage.getItem(PENDING_DECK_KEY)
     if (!raw) return undefined
     const parsed = JSON.parse(raw)
-    if (validateDeck(parsed) !== null) return undefined
+    // サイズ制限はサーバー側 (game-config.json) が権威。
+    // ここではカード構造の妥当性のみを軽く確認するため、サイズ制限は緩める。
+    if (
+      validateDeck(parsed, {
+        minDeckSize: 0,
+        maxDeckSize: Number.MAX_SAFE_INTEGER,
+      }) !== null
+    )
+      return undefined
     return parsed as Card[]
   } catch {
     return undefined

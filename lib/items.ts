@@ -2,7 +2,7 @@
 // アイテムは静止オブジェクト。両プレイヤーが攻撃可能で、最後にHPを0にした側が
 // その演算子カードを獲得する。プレイヤーが触れた場合も即時に拾得できる。
 import type { Bullet, FieldItem, GameSettings, HandItem, ItemKind, PlayerState, Position } from './types'
-import { INITIAL_HP, ITEM_CORNER_RADIUS, ITEM_HP_MAX, ITEM_HP_MIN, ITEM_SPAWN_X_HALF_WIDTH, MAX_HAND_SIZE } from './constants'
+import { INITIAL_HP, ITEM_CORNER_RADIUS, ITEM_HP_MAX, ITEM_HP_MIN, ITEM_SPAWN_X_HALF_WIDTH } from './constants'
 import { pointInRoundedRect, segmentHitsRoundedRect } from './physics'
 import { isPrimeBullet } from './prime'
 import { sampleCurve } from './curve-collision'
@@ -190,9 +190,13 @@ export interface ItemPickup {
 
 // アイテム種別と現在の手札から、付与する演算子カードのリストを返す。
 // pack は4種、heal はカード無し、それ以外は対応する1種。手札の空きを超えない範囲。
-export const cardsForItemKind = (kind: ItemKind, currentHandLen: number): HandItem[] => {
+export const cardsForItemKind = (
+  kind: ItemKind,
+  currentHandLen: number,
+  maxHandSize: number
+): HandItem[] => {
   if (kind === 'heal') return []
-  const room = Math.max(0, MAX_HAND_SIZE - currentHandLen)
+  const room = Math.max(0, maxHandSize - currentHandLen)
   if (room === 0) return []
   if (kind === 'pack') {
     return PACK_OPERATORS.slice(0, room).map((op) => ({ type: 'operator', operator: op }))
@@ -222,7 +226,7 @@ export const applyItemReward = (
     if (actual <= 0) return { player, awardedCount: 0 }
     return { player: { ...player, hp: newHp }, awardedCount: actual }
   }
-  const cards = cardsForItemKind(kind, player.hand.length)
+  const cards = cardsForItemKind(kind, player.hand.length, settings.maxHandSize)
   if (cards.length === 0) return { player, awardedCount: 0 }
   return {
     player: { ...player, hand: [...player.hand, ...cards] },

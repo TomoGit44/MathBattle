@@ -186,7 +186,11 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, dec
   room.playerOrder.push(connId)
   room.players.set(connId, { ws, id: connId, name })
   // 不正なデッキはデフォルトに差し替え (サーバー権威)
-  room.decks.set(connId, deck ? sanitizeDeck(deck) : createDefaultDeck())
+  const deckLimits = {
+    minDeckSize: GAME_SETTINGS.minDeckSize,
+    maxDeckSize: GAME_SETTINGS.maxDeckSize,
+  }
+  room.decks.set(connId, deck ? sanitizeDeck(deck, deckLimits) : createDefaultDeck())
   room.gameState = addPlayer(room.gameState, connId, name, isFirst)
 
   if (room.playerOrder.length < 2) {

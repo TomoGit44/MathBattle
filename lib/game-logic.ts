@@ -19,6 +19,8 @@ import {
   INITIAL_HP,
   DRAW_COUNT,
   MAX_HAND_SIZE,
+  MIN_DECK_SIZE,
+  MAX_DECK_SIZE,
   PHYSICS_TICKS_PER_TURN,
   P1_START_X,
   P2_START_X,
@@ -61,6 +63,10 @@ const DEFAULT_SETTINGS: GameSettings = {
   maxItems: MAX_ITEMS,
   healAmountMin: DEFAULT_HEAL_AMOUNT_MIN,
   healAmountMax: DEFAULT_HEAL_AMOUNT_MAX,
+  drawCount: DRAW_COUNT,
+  maxHandSize: MAX_HAND_SIZE,
+  minDeckSize: MIN_DECK_SIZE,
+  maxDeckSize: MAX_DECK_SIZE,
 }
 
 export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({
@@ -117,13 +123,16 @@ export const startGame = (
 const countNumberCards = (hand: HandItem[]): number =>
   hand.filter((item) => item.type === 'number' || item.type === 'token').length
 
-const replenishNumbers = (hand: HandItem[]): { hand: HandItem[]; added: HandItem[] } => {
+const replenishNumbers = (
+  hand: HandItem[],
+  maxHandSize: number
+): { hand: HandItem[]; added: HandItem[] } => {
   if (countNumberCards(hand) > NUMBER_REPLENISH_THRESHOLD) {
     return { hand, added: [] }
   }
   const added: HandItem[] = []
   for (let v = 1; v <= 9; v++) {
-    if (hand.length + added.length >= MAX_HAND_SIZE) break
+    if (hand.length + added.length >= maxHandSize) break
     added.push({ type: 'number', value: v })
   }
   return { hand: [...hand, ...added], added }
@@ -132,7 +141,10 @@ const replenishNumbers = (hand: HandItem[]): { hand: HandItem[]; added: HandItem
 // 移動カードの自動補充: 各方向ごとに手札に1枚もなければ補充する。
 // これによりプレイヤーが移動できなくなる詰みを防ぐ (CLAUDE.md: 自動供給)。
 const ALL_DIRECTIONS: Direction[] = ['up', 'down', 'left', 'right']
-const replenishMoves = (hand: HandItem[]): { hand: HandItem[]; added: HandItem[] } => {
+const replenishMoves = (
+  hand: HandItem[],
+  maxHandSize: number
+): { hand: HandItem[]; added: HandItem[] } => {
   const owned = new Set<Direction>()
   for (const item of hand) {
     if (item.type === 'move') owned.add(item.direction)
@@ -140,7 +152,7 @@ const replenishMoves = (hand: HandItem[]): { hand: HandItem[]; added: HandItem[]
   const added: HandItem[] = []
   for (const dir of ALL_DIRECTIONS) {
     if (owned.has(dir)) continue
-    if (hand.length + added.length >= MAX_HAND_SIZE) break
+    if (hand.length + added.length >= maxHandSize) break
     added.push({ type: 'move', direction: dir })
   }
   return { hand: [...hand, ...added], added }
@@ -153,6 +165,8 @@ export const executeDraw = (
   const newPlayers = { ...state.players }
   const newDecks = new Map(decks)
   const drawnCards: Record<string, HandItem[]> = {}
+  const drawCount = state.settings.drawCount
+  const maxHandSize = state.settings.maxHandSize
 
   for (const [id, player] of Object.entries(newPlayers)) {
     let deck = newDecks.get(id) ?? []
@@ -161,7 +175,7 @@ export const executeDraw = (
       deck = shuffleDeck(createDefaultDeck())
       newDecks.set(id, deck)
     }
-    const canDraw = Math.min(DRAW_COUNT, deck.length, MAX_HAND_SIZE - player.hand.length)
+    const canDraw = Math.min(drawCount, deck.length, maxHandSize - player.hand.length)
     let handAfter = player.hand
     let drawnList: HandItem[] = []
     let remainingDeck = deck
@@ -175,9 +189,9 @@ export const executeDraw = (
     }
 
     // 数字カードが閾値以下なら 1-9 を補充
-    const { hand: numReplenished, added: numAdded } = replenishNumbers(handAfter)
+    const { hand: numReplenished, added: numAdded } = replenishNumbers(handAfter, maxHandSize)
     // 各方向の移動カードがなければ補充
-    const { hand: replenishedHand, added: moveAdded } = replenishMoves(numReplenished)
+    const { hand: replenishedHand, added: moveAdded } = replenishMoves(numReplenished, maxHandSize)
 
     drawnCards[id] = [...drawnList, ...numAdded, ...moveAdded]
 

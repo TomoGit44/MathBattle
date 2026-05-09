@@ -7,6 +7,7 @@ import {
   MAX_REFLECTIONS,
   FUNCTION_DAMAGE,
   FIELD_WIDTH,
+  PHYSICS_TICKS_PER_TURN,
 } from '@/lib/constants'
 
 export type DetailTarget =
@@ -103,7 +104,9 @@ export const DetailTooltip = ({ target, anchor, settings, onClose }: DetailToolt
 const BulletDetail = ({ bullet, isOwn, settings }: { bullet: Bullet; isOwn: boolean; settings: GameSettings }) => {
   const isPrime = isPrimeBullet(bullet.value)
   const speedPx = calcBulletSpeed(bullet.value)
-  const speedMath = speedPx * ((2 * settings.mathXMax) / FIELD_WIDTH)
+  // 座標/ターン = (px/tick) × (座標/px) × (tick/ターン)
+  const speedMathPerTurn =
+    speedPx * ((2 * settings.mathXMax) / FIELD_WIDTH) * PHYSICS_TICKS_PER_TURN
   const qual = speedQualitative(bullet.value)
 
   return (
@@ -122,8 +125,8 @@ const BulletDetail = ({ bullet, isOwn, settings }: { bullet: Bullet; isOwn: bool
       </div>
       <div>
         速度:{' '}
-        <span className="font-bold">{speedMath.toFixed(2)}</span>
-        <span className="text-text-dim"> /tick</span>
+        <span className="font-bold">{speedMathPerTurn.toFixed(2)}</span>
+        <span className="text-text-dim"> 座標/ターン</span>
         <span className="text-text-mid"> ({qual})</span>
       </div>
       <div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { BackgroundGrid } from '@/components/game/BackgroundGrid'
 import { DeckBuilder } from '@/components/lobby/DeckBuilder'
@@ -10,11 +10,48 @@ import type { Card } from '@/lib/types'
 const DECK_STORAGE_KEY = 'mathbattle:deck'
 const PENDING_DECK_KEY = 'mathbattle:pendingDeck'
 
+interface LobbyConfig {
+  minDeckSize: number
+  maxDeckSize: number
+}
+
 const Home = () => {
   const [name, setName] = useState('')
   const [roomId, setRoomId] = useState('')
   const [deck, setDeck] = useState<Card[]>(() => createDefaultDeck())
+  // game-config.json に基づくデッキ制限値。null の間は constants の既定値が使われる。
+  const [lobbyCfg, setLobbyCfg] = useState<LobbyConfig | null>(null)
   const router = useRouter()
+
+  // サーバー側で読み込まれた設定値を取得 (失敗時は constants デフォルトを使う)
+  useEffect(() => {
+    let cancelled = false
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch('/api/game-config', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = (await res.json()) as Partial<LobbyConfig>
+        if (cancelled) return
+        if (
+          typeof data.minDeckSize === 'number' &&
+          typeof data.maxDeckSize === 'number'
+        ) {
+          setLobbyCfg({ minDeckSize: data.minDeckSize, maxDeckSize: data.maxDeckSize })
+        }
+      } catch {
+        // ネットワーク失敗時は既定値のまま
+      }
+    }
+    fetchConfig()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const limits = useMemo(
+    () => (lobbyCfg ? { minDeckSize: lobbyCfg.minDeckSize, maxDeckSize: lobbyCfg.maxDeckSize } : undefined),
+    [lobbyCfg]
+  )
 
   // 保存済みデッキを復元 (初回マウント時のみ)
   useEffect(() => {
@@ -22,23 +59,25 @@ const Home = () => {
       const saved = localStorage.getItem(DECK_STORAGE_KEY)
       if (!saved) return
       const parsed = JSON.parse(saved)
-      if (validateDeck(parsed) === null) {
+      if (validateDeck(parsed, limits) === null) {
         setDeck(parsed as Card[])
       }
     } catch {
       // 破損時は無視 (デフォルトのまま)
     }
+    // limits が後から取得されても再復元はしない (ユーザーの編集を尊重)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 変更のたびに保存 (検証通過時のみ)
   useEffect(() => {
-    if (validateDeck(deck) !== null) return
+    if (validateDeck(deck, limits) !== null) return
     try {
       localStorage.setItem(DECK_STORAGE_KEY, JSON.stringify(deck))
     } catch {
       // 容量超過などは無視
     }
-  }, [deck])
+  }, [deck, limits])
 
   const generateRoomId = () => {
     return Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -46,7 +85,7 @@ const Home = () => {
 
   // 検証通過時のみ送る (失敗時はサーバーがデフォルトに差し替える)
   const stashDeckForGame = () => {
-    if (validateDeck(deck) !== null) {
+    if (validateDeck(deck, limits) !== null) {
       sessionStorage.removeItem(PENDING_DECK_KEY)
       return
     }
@@ -70,7 +109,7 @@ const Home = () => {
     router.push(`/game/${roomId.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`)
   }
 
-  const deckValid = validateDeck(deck) === null
+  const deckValid = validateDeck(deck, limits) === null
   const canStart = name.trim().length > 0 && deckValid
 
   return (
@@ -117,7 +156,12 @@ const Home = () => {
           />
         </div>
 
-        <DeckBuilder deck={deck} onChange={setDeck} />
+        <DeckBuilder
+          deck={deck}
+          onChange={setDeck}
+          minDeckSize={lobbyCfg?.minDeckSize}
+          maxDeckSize={lobbyCfg?.maxDeckSize}
+        />
 
         <button
           onClick={handleCreate}
