@@ -121,10 +121,11 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
         }
       />
 
-      {/* ターン結果 (素数合成時はaction中でも演出表示) */}
+      {/* ターン結果 (素数合成時はaction中でも演出表示。決着ターンも GameOver 遷移前に再生) */}
       {turnResult &&
         (phase === 'result' ||
           phase === 'resolving' ||
+          phase === 'gameover' ||
           Object.keys(turnResult.primeSynthesis ?? {}).length > 0) && (
           <TurnResult turnResult={turnResult} meId={me.id} turn={turn} />
         )}
