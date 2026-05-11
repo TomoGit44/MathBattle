@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { MouseEvent } from 'react'
 import type { ClientGameState, Bullet, FunctionCurve, FieldItem, Position } from '@/lib/types'
-import { ANIMATION_DURATION_MS, GRID_SPACING_X, GRID_SPACING_Y } from '@/lib/constants'
+import { GRID_SPACING_X, GRID_SPACING_Y } from '@/lib/constants'
 import { predictTrajectories } from '@/lib/trajectory'
 import { Player } from './Player'
 import { BulletDisplay } from './BulletDisplay'
@@ -23,17 +23,26 @@ interface GameFieldProps {
 }
 
 export const GameField = ({ gameState, movePreview }: GameFieldProps) => {
-  const { me, opponent, bullets, curves, items, turnResult, fieldSize } = gameState
+  const { me, opponent, bullets, curves, items, turnResult, fieldSize, settings } = gameState
   const phase = gameState.phase
+  const animationDurationMs = settings.animationDurationMs
 
   // アニメーション用: 現在表示中の弾一覧と再生中の step index
+  // playbackStep は「いま視覚的に到達した snapshot の index」。
+  // CollisionEquation 側はこの index 変化を契機に snap[step-1]→snap[step] の差分を取る。
   const [displayBullets, setDisplayBullets] = useState<Bullet[]>(bullets)
   const [playbackStep, setPlaybackStep] = useState<number>(-1)
   const [isAnimating, setIsAnimating] = useState(false)
-  const animFrameRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rafRef = useRef<number | null>(null)
   const prevTurnRef = useRef<number>(0)
 
-  // スナップショットアニメーション再生 (ヒットストップ対応)
+  // スナップショットアニメーション再生
+  // 物理シミュレーションは PHYSICS_TICKS_PER_TURN (=10) tick で離散化されているが、
+  // クライアントは隣接 snapshot 間を線形補間して 60fps で滑らかに描画する。
+  // - ゲームバランス・通信仕様には影響なし (描画のみの変更)
+  // - 衝突で消えた弾は当該セグメント中は静止 (互換維持)
+  // - 値・速度は snapshot の整数 tick 値をそのまま使う (反射 +3 はセグメント境界で切替)
+  // - ヒットストップ中は経過時間を加算しない (一時停止)
   useEffect(() => {
     const snapshots = turnResult?.bulletSnapshots
     if (!snapshots || snapshots.length === 0) {
@@ -54,35 +63,86 @@ export const GameField = ({ gameState, movePreview }: GameFieldProps) => {
     prevTurnRef.current = gameState.turn
 
     setIsAnimating(true)
-    const totalSteps = snapshots.length
-    const stepDuration = ANIMATION_DURATION_MS / totalSteps
-    let currentStep = 0
+    const totalSnapshots = snapshots.length
+    const segmentCount = Math.max(1, totalSnapshots - 1)
+    const segmentDuration = animationDurationMs / segmentCount
 
-    const playStep = () => {
-      // ヒットストップ中は次のフレームに繰り越す (短時間の凍結)
-      if (isHitStopped()) {
-        animFrameRef.current = setTimeout(playStep, 30)
+    let startTime = performance.now()
+    let pausedAt: number | null = null   // ヒットストップ開始時刻
+    let pausedAccum = 0                  // 累積一時停止時間 (ms)
+    let lastEmittedStep = -1
+
+    const frame = (now: number) => {
+      // ヒットストップ中は時間を進めない (一時停止)
+      const stopped = isHitStopped()
+      if (stopped) {
+        if (pausedAt === null) pausedAt = now
+        rafRef.current = requestAnimationFrame(frame)
         return
       }
-      if (currentStep < totalSteps) {
-        setDisplayBullets(snapshots[currentStep].bullets)
-        setPlaybackStep(currentStep)
-        currentStep++
-        animFrameRef.current = setTimeout(playStep, stepDuration)
-      } else {
-        setDisplayBullets(bullets)
-        setIsAnimating(false)
+      if (pausedAt !== null) {
+        pausedAccum += now - pausedAt
+        pausedAt = null
       }
+
+      const elapsed = now - startTime - pausedAccum
+
+      // 終了
+      if (elapsed >= animationDurationMs) {
+        setDisplayBullets(bullets)
+        setPlaybackStep(totalSnapshots - 1)
+        setIsAnimating(false)
+        rafRef.current = null
+        return
+      }
+
+      const segmentIndex = Math.min(
+        segmentCount - 1,
+        Math.max(0, Math.floor(elapsed / segmentDuration))
+      )
+      const segmentStart = segmentIndex * segmentDuration
+      const t = Math.min(1, Math.max(0, (elapsed - segmentStart) / segmentDuration))
+
+      const snapA = snapshots[segmentIndex].bullets
+      const snapB = snapshots[segmentIndex + 1]?.bullets ?? snapA
+      const mapB = new Map(snapB.map((b) => [b.id, b]))
+
+      const interpolated: Bullet[] = snapA.map((a) => {
+        const b = mapB.get(a.id)
+        if (!b) {
+          // このセグメント中に消滅する弾 (衝突・ヒット・反射上限超過)。
+          // 補間先が無いので snap[i] の位置で静止させ、次セグメント開始時に消える。
+          return a
+        }
+        return {
+          ...a,
+          position: {
+            x: a.position.x + (b.position.x - a.position.x) * t,
+            y: a.position.y + (b.position.y - a.position.y) * t,
+          },
+        }
+      })
+
+      setDisplayBullets(interpolated)
+      // step を「整数 snapshot index」として更新。CollisionEquation 等の
+      // 既存の差分検出ロジックを変えずに済むよう、セグメント境界で step を1つ進める。
+      if (segmentIndex !== lastEmittedStep) {
+        setPlaybackStep(segmentIndex)
+        lastEmittedStep = segmentIndex
+      }
+
+      rafRef.current = requestAnimationFrame(frame)
     }
 
-    playStep()
+    rafRef.current = requestAnimationFrame(frame)
 
     return () => {
-      if (animFrameRef.current !== null) {
-        clearTimeout(animFrameRef.current)
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
       }
     }
-  }, [turnResult, bullets, phase, gameState.turn])
+  }, [turnResult, bullets, phase, gameState.turn, animationDurationMs])
 
   // 自分が被弾したら短く赤フラッシュ (TurnResult 側のシェイクと連動)
   const myDamageThisTurn = turnResult?.damages?.[me.id] ?? 0
@@ -131,7 +191,6 @@ export const GameField = ({ gameState, movePreview }: GameFieldProps) => {
   }, [phase, bullets])
 
   // アクションフェーズ中に全tick軌跡を予測
-  const settings = gameState.settings
   const trajectories = useMemo(() => {
     if (phase !== 'action' || isAnimating || displayBullets.length === 0) return []
     return predictTrajectories(displayBullets, fieldSize, settings)

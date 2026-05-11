@@ -37,6 +37,7 @@ import {
   DEFAULT_HEAL_AMOUNT_MIN,
   DEFAULT_HEAL_AMOUNT_MAX,
   MAX_ITEMS,
+  ANIMATION_DURATION_MS,
 } from './constants'
 import { shuffleDeck, drawCards, createDefaultDeck } from './deck'
 import { applyCalculation } from './calc-engine'
@@ -67,6 +68,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   maxHandSize: MAX_HAND_SIZE,
   minDeckSize: MIN_DECK_SIZE,
   maxDeckSize: MAX_DECK_SIZE,
+  animationDurationMs: ANIMATION_DURATION_MS,
 }
 
 export const initializeGameState = (settings: GameSettings = DEFAULT_SETTINGS): GameState => ({

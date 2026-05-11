@@ -123,6 +123,7 @@ export interface GameSettings {
   maxHandSize: number    // 手札の上限枚数
   minDeckSize: number    // デッキの下限枚数 (デッキ構築時)
   maxDeckSize: number    // デッキの上限枚数 (デッキ構築時)
+  animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
 }
 
 export interface GameState {

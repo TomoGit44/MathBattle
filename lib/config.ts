@@ -28,6 +28,7 @@ import {
   MAX_HAND_SIZE,
   MIN_DECK_SIZE,
   MAX_DECK_SIZE,
+  ANIMATION_DURATION_MS,
 } from './constants'
 import type { GameSettings, ItemKind } from './types'
 
@@ -50,6 +51,7 @@ export interface GameConfig {
   maxHandSize: number       // 手札の上限枚数
   minDeckSize: number       // デッキの下限枚数 (構築時の最小値)
   maxDeckSize: number       // デッキの上限枚数 (構築時の最大値)
+  animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
 }
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -68,6 +70,7 @@ const DEFAULT_CONFIG: GameConfig = {
   maxHandSize: MAX_HAND_SIZE,
   minDeckSize: MIN_DECK_SIZE,
   maxDeckSize: MAX_DECK_SIZE,
+  animationDurationMs: ANIMATION_DURATION_MS,
 }
 
 const ITEM_KIND_KEYS: ItemKind[] = ['+', '-', '×', '÷', 'pack', 'heal']
@@ -164,6 +167,11 @@ const validate = (raw: unknown): GameConfig => {
     cfg.maxDeckSize = cfg.minDeckSize
   }
 
+  // アニメーション時間 (ms)。極端に短い値を防ぐため最低 200ms にクランプ。
+  if (isPositiveNumber(obj.animationDurationMs)) {
+    cfg.animationDurationMs = Math.max(200, Math.floor(obj.animationDurationMs))
+  }
+
   return cfg
 }
 
@@ -189,6 +197,7 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     maxHandSize: cfg.maxHandSize,
     minDeckSize: cfg.minDeckSize,
     maxDeckSize: cfg.maxDeckSize,
+    animationDurationMs: cfg.animationDurationMs,
   }
 }
 

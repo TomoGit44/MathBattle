@@ -1,7 +1,6 @@
 'use client'
 
 import { Suspense, useEffect, useMemo, useState } from 'react'
-import { ANIMATION_DURATION_MS } from '@/lib/constants'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useGameSocket } from '@/hooks/useGameSocket'
 import { GameScreen } from '@/components/game/GameScreen'
@@ -65,8 +64,9 @@ const GameRoomInner = () => {
 
   // 決着がついたターンも、まずは弾の物理シミュレーションを GameScreen で再生してから
   // GameOver 画面に遷移する。サーバーは phase='gameover' を turnResult と一緒に送ってくる
-  // ため、turnResult の表示 (≒ ANIMATION_DURATION_MS) が終わるまで遷移を遅らせる。
+  // ため、turnResult の表示 (= settings.animationDurationMs) が終わるまで遷移を遅らせる。
   const [showGameOver, setShowGameOver] = useState(false)
+  const animDurationMs = gameState?.settings.animationDurationMs
   useEffect(() => {
     if (gameOverWinnerId === undefined) {
       setShowGameOver(false)
@@ -74,13 +74,13 @@ const GameRoomInner = () => {
     }
     // turnResult が無いとき (相手切断など) は即時に GameOver へ
     const hasTurnResult = !!gameState?.turnResult?.bulletSnapshots?.length
-    if (!hasTurnResult) {
+    if (!hasTurnResult || !animDurationMs) {
       setShowGameOver(true)
       return
     }
-    const t = setTimeout(() => setShowGameOver(true), ANIMATION_DURATION_MS)
+    const t = setTimeout(() => setShowGameOver(true), animDurationMs)
     return () => clearTimeout(t)
-  }, [gameOverWinnerId, gameState?.turnResult])
+  }, [gameOverWinnerId, gameState?.turnResult, animDurationMs])
 
   const handleCopy = async () => {
     try {

@@ -14,7 +14,6 @@ import { createDefaultDeck, sanitizeDeck } from '../lib/deck'
 import { checkGameOver } from '../lib/damage'
 import { tryApplyCalculation, calcErrorMessage } from '../lib/calc-engine'
 import { isPrimeBullet } from '../lib/prime'
-import { TURN_DELAY_MS } from '../lib/constants'
 import { loadConfig, isUnlimited, toGameSettings } from '../lib/config'
 import { encodeMessage, decodeMessage } from '../lib/json-codec'
 import type { TurnResult } from '../lib/types'
@@ -22,6 +21,9 @@ import type { ItemPickup } from '../lib/items'
 
 const CONFIG = loadConfig()
 const GAME_SETTINGS = toGameSettings(CONFIG)
+// 次ターン開始までの遅延 = アニメーション再生時間 + 1秒の余白
+// (クライアント側のアニメ完了を待ってからサーバーが新ターンの状態を送る)
+const TURN_DELAY_MS = GAME_SETTINGS.animationDurationMs + 1000
 
 interface PlayerConnection {
   ws: WebSocket
