@@ -22,9 +22,8 @@ export const CurveDisplay = ({
   onClick,
   pulse = false,
 }: CurveDisplayProps) => {
-  // 所有者識別: 色 + 線種 (実線=自分 / 破線=相手)。色覚配慮。
   const color = isOwn ? 'var(--color-curve-own)' : 'var(--color-curve-foe)'
-  const dashArray = isOwn ? undefined : '8 4'
+  const dashArray = undefined
   const { mathXMax, mathYMax } = settings
 
   // 曲線をサンプリングしてSVGパスを生成
