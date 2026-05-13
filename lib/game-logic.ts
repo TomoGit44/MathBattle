@@ -47,7 +47,7 @@ import { applyDamage, checkGameOver } from './damage'
 import { checkCurveDamages } from './curve-collision'
 import { expressionKey } from './func-engine'
 import { isPrimeBullet } from './prime'
-import { trySpawnItem, checkBulletItemCollisions, applyCurveDamageToItems, pickupItemsForPlayer, applyItemReward, type ItemKill, type ItemPickup } from './items'
+import { trySpawnItem, checkBulletItemCollisions, applyCurveDamageToItems, resolveItemPickupsForAll, applyItemReward, type ItemKill, type ItemPickup } from './items'
 
 // 設定ファイルが無い場合に使うデフォルト設定 (既存の constants と同等)
 // 旧来の mathXMax=10 / mathYMax=5 → pixelsPerUnit=40 相当
@@ -208,22 +208,16 @@ export const executeDraw = (
   const spawned = trySpawnItem(state.items, state.fieldSize, state.settings)
   let newItems = spawned ? [...state.items, spawned] : state.items
 
-  // スポーン直後にプレイヤーの上に重なっていれば即時拾得 (まれだが防御的に)
-  const allPickups: ItemPickup[] = []
-  for (const id of Object.keys(newPlayers)) {
-    const result = pickupItemsForPlayer(newPlayers[id], newItems, state.settings)
-    if (result.pickups.length > 0) {
-      newItems = result.items
-      newPlayers[id] = result.player
-      allPickups.push(...result.pickups)
-    }
-  }
+  // スポーン直後にプレイヤーの上に重なっていれば即時拾得 (両者が同時に重なれば co-pickup)
+  const pickupRes = resolveItemPickupsForAll(newPlayers, newItems, state.settings)
+  newItems = pickupRes.items
+  Object.assign(newPlayers, pickupRes.players)
 
   return {
     state: { ...state, phase: 'action', players: newPlayers, items: newItems },
     decks: newDecks,
     drawnCards,
-    pickups: allPickups,
+    pickups: pickupRes.pickups,
   }
 }
 
@@ -290,22 +284,20 @@ export const applyImmediateMove = (
   consumed.splice(handIndex, 1)
   const movedPlayer: PlayerState = { ...player, position: clamped, hand: consumed }
 
-  const { items: remainingItems, player: pickedPlayer, pickups } = pickupItemsForPlayer(
-    movedPlayer,
-    state.items,
-    state.settings
-  )
+  // 移動後の状態で全プレイヤー一括の接触判定 (相手が既にアイテムに乗っていれば co-pickup)
+  const playersAfterMove: Record<string, PlayerState> = {
+    ...state.players,
+    [playerId]: movedPlayer,
+  }
+  const pickupRes = resolveItemPickupsForAll(playersAfterMove, state.items, state.settings)
 
   return {
     state: {
       ...state,
-      items: remainingItems,
-      players: {
-        ...state.players,
-        [playerId]: pickedPlayer,
-      },
+      items: pickupRes.items,
+      players: pickupRes.players,
     },
-    pickups,
+    pickups: pickupRes.pickups,
   }
 }
 
@@ -471,7 +463,12 @@ export const resolveActions = (
 
   // アイテム撃破 → killer に報酬を適用 (演算子カード追加 / heal なら HP 回復)
   // pack の場合は4種演算子を一括付与 (空きが足りなければ入る分だけ)
+  // 同一アイテムIDが複数 (=co-kill) の場合は全員にそれぞれ報酬を付与する
   const recordedKills: NonNullable<TurnResult['itemKills']> = []
+  const killCountByItem = new Map<string, number>()
+  for (const kill of itemKillsAccum) {
+    killCountByItem.set(kill.itemId, (killCountByItem.get(kill.itemId) ?? 0) + 1)
+  }
   for (const kill of itemKillsAccum) {
     const killer = players[kill.killerId]
     if (!killer) {
@@ -485,6 +482,16 @@ export const resolveActions = (
     recordedKills.push({ ...kill, awardedCount })
   }
   turnResult.itemKills = recordedKills
+
+  // 同時撃破ログ
+  const loggedCoKill = new Set<string>()
+  for (const kill of itemKillsAccum) {
+    if (loggedCoKill.has(kill.itemId)) continue
+    if ((killCountByItem.get(kill.itemId) ?? 0) < 2) continue
+    loggedCoKill.add(kill.itemId)
+    const label = kill.kind === 'pack' ? '🎁 PACK' : kill.kind === 'heal' ? '❤️ HEAL' : kill.kind
+    turnResult.bulletEvents.push(`🤝 ${label} を同時撃破! 両者が獲得`)
+  }
 
   // ダメージ適用
   for (const [id, dmg] of Object.entries(totalDamages)) {

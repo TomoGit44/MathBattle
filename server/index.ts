@@ -168,6 +168,22 @@ const resolveRound = (room: Room) => {
     room.pendingItemPickups = []
   }
 
+  // 同時拾得ログ (同一 itemId に複数 pickerId が記録されているもの)
+  if (turnResult.itemPickups && turnResult.itemPickups.length >= 2) {
+    const countByItem = new Map<string, number>()
+    for (const p of turnResult.itemPickups) {
+      countByItem.set(p.itemId, (countByItem.get(p.itemId) ?? 0) + 1)
+    }
+    const logged = new Set<string>()
+    for (const p of turnResult.itemPickups) {
+      if (logged.has(p.itemId)) continue
+      if ((countByItem.get(p.itemId) ?? 0) < 2) continue
+      logged.add(p.itemId)
+      const label = p.kind === 'pack' ? '🎁 PACK' : p.kind === 'heal' ? '❤️ HEAL' : p.kind
+      turnResult.bulletEvents.push(`🤝 ${label} を同時拾得! 両者が獲得`)
+    }
+  }
+
   sendStateToAll(room, turnResult)
 
   if (room.gameState.phase === 'gameover') return

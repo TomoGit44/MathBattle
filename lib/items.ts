@@ -85,7 +85,8 @@ export interface ItemKill {
 // 弾とアイテムの衝突判定。tickBullets / checkBulletCollisions / checkPlayerHits の後に呼ぶ。
 // - 通常弾: ヒットでアイテムHPを value だけ減らし、弾は消滅
 // - 素数弾: 同様にHPを減らすが、弾は貫通 (位置・速度変わらず)
-// - HPが0以下になったらアイテムは消滅し、そのHitを与えた弾の owner が killer になる
+// - HPが0以下になったらアイテムは消滅し、同tick内でヒットした全プレイヤーが killer となる
+//   (=両プレイヤーの弾が同tickで撃破に貢献した場合は co-kill。それぞれにキル記録が出る)
 // 同tick内で1つの弾は最大1アイテムにヒットする (素数弾は複数ヒットOK)
 export const checkBulletItemCollisions = (
   bullets: Bullet[],
@@ -98,7 +99,8 @@ export const checkBulletItemCollisions = (
   // 可変コピー (HPを減らしていく)
   const itemMap = new Map<string, FieldItem>(items.map((i) => [i.id, { ...i }]))
   const remainingBullets: Bullet[] = []
-  const kills: ItemKill[] = []
+  // この tick 中に各アイテムへヒットしたプレイヤーIDの集合
+  const hittersByItem = new Map<string, Set<string>>()
 
   for (const bullet of bullets) {
     const bulletPrev = prevBulletPositions.get(bullet.id) ?? bullet.position
@@ -107,8 +109,6 @@ export const checkBulletItemCollisions = (
     let nonPrimeConsumed = false
 
     for (const item of itemMap.values()) {
-      if (item.hp <= 0) continue
-
       // アイテムは角丸正方形。弾(円)の経路 vs (アイテム角丸矩形 ⊕ 弾半径) で判定。
       const halfSize = item.size / 2
       const hw = halfSize + settings.bulletRadius
@@ -120,11 +120,15 @@ export const checkBulletItemCollisions = (
         continue
       }
 
-      // ヒット: 弾の値だけHPを減らす
+      // ヒット: 弾の値だけHPを減らし、ヒッターを記録
+      // (HP <= 0 でも同tick中ならヒットを許可 → 同時撃破を成立させる)
       item.hp -= bullet.value
-      if (item.hp <= 0 && !kills.find((k) => k.itemId === item.id)) {
-        kills.push({ itemId: item.id, kind: item.kind, killerId: bullet.owner })
+      let set = hittersByItem.get(item.id)
+      if (!set) {
+        set = new Set<string>()
+        hittersByItem.set(item.id, set)
       }
+      set.add(bullet.owner)
 
       if (!bulletPrime) {
         // 通常弾は消滅
@@ -139,14 +143,26 @@ export const checkBulletItemCollisions = (
     }
   }
 
+  // 死亡したアイテムについて、同tick中にヒットした全プレイヤーを killer として記録
+  const kills: ItemKill[] = []
+  for (const item of itemMap.values()) {
+    if (item.hp > 0) continue
+    const owners = hittersByItem.get(item.id)
+    if (!owners) continue
+    for (const ownerId of owners) {
+      kills.push({ itemId: item.id, kind: item.kind, killerId: ownerId })
+    }
+  }
+
   const remainingItems = Array.from(itemMap.values()).filter((i) => i.hp > 0)
   return { bullets: remainingBullets, items: remainingItems, kills }
 }
 
 // 関数カーブとアイテムの衝突判定。ターン終了時に1回だけ呼ぶ。
 // 自分の曲線でも相手の曲線でも (アイテムは中立)、曲線にかかっているアイテムはダメージを受ける。
-// HPが0以下になったらアイテムは消滅し、ダメージを与えた曲線の owner が killer。
-// 複数の曲線が同一アイテムにかかる場合、合計ダメージで判定する。最後に当たった曲線の owner が killer になる。
+// 複数の曲線が同一アイテムにかかる場合、合計ダメージで判定する。
+// アイテムが死亡した場合、ダメージを与えた全プレイヤーが killer となる
+// (=両プレイヤーのカーブが同ターンで撃破に貢献した場合は co-kill)。
 export const applyCurveDamageToItems = (
   curves: FunctionCurve[],
   items: FieldItem[],
@@ -156,24 +172,36 @@ export const applyCurveDamageToItems = (
   if (curves.length === 0 || items.length === 0) return { items, kills: [] }
 
   const itemMap = new Map<string, FieldItem>(items.map((i) => [i.id, { ...i }]))
-  const kills: ItemKill[] = []
+  // 各アイテムへダメージを与えたプレイヤーIDの集合
+  const hittersByItem = new Map<string, Set<string>>()
 
   for (const curve of curves) {
     const sampled = sampleCurve(curve, settings)
     if (sampled.length === 0) continue
 
     for (const item of itemMap.values()) {
-      if (item.hp <= 0) continue
       const halfSize = item.size / 2
       const hit = sampled.some((pt) =>
         pointInRoundedRect(pt, item.position, halfSize, halfSize, ITEM_CORNER_RADIUS)
       )
-      if (hit) {
-        item.hp -= fnDamage
-        if (item.hp <= 0 && !kills.find((k) => k.itemId === item.id)) {
-          kills.push({ itemId: item.id, kind: item.kind, killerId: curve.owner })
-        }
+      if (!hit) continue
+      item.hp -= fnDamage
+      let set = hittersByItem.get(item.id)
+      if (!set) {
+        set = new Set<string>()
+        hittersByItem.set(item.id, set)
       }
+      set.add(curve.owner)
+    }
+  }
+
+  const kills: ItemKill[] = []
+  for (const item of itemMap.values()) {
+    if (item.hp > 0) continue
+    const owners = hittersByItem.get(item.id)
+    if (!owners) continue
+    for (const ownerId of owners) {
+      kills.push({ itemId: item.id, kind: item.kind, killerId: ownerId })
     }
   }
 
@@ -234,43 +262,53 @@ export const applyItemReward = (
   }
 }
 
-// プレイヤー位置とアイテムの接触判定。プレイヤーは円 (半径 settings.playerRadius)、
+// プレイヤー位置とアイテムの接触判定 (全プレイヤー一括)。プレイヤーは円 (半径 settings.playerRadius)、
 // アイテムは角丸正方形として扱う。重なっているアイテムは即時に拾得され、報酬を適用する
-// (演算子はカード追加、heal はHP回復)。報酬を1つも適用できない場合 (手札満杯 / HP満タン)
-// はアイテムをフィールドに残す。
-export const pickupItemsForPlayer = (
-  player: PlayerState,
+// (演算子はカード追加、heal はHP回復)。
+//
+// 同一アイテムに複数プレイヤーが同時に触れている場合は **全員に報酬を付与** する (co-pickup)。
+// 触れている全プレイヤーが報酬を受け取れない場合 (手札満杯 / HP満タン) はアイテムを残置する。
+// それ以外で一人でも報酬を受け取れた場合はアイテムを消滅させる。
+export const resolveItemPickupsForAll = (
+  players: Record<string, PlayerState>,
   items: FieldItem[],
   settings: GameSettings
-): { items: FieldItem[]; player: PlayerState; pickups: ItemPickup[] } => {
-  if (items.length === 0) return { items, player, pickups: [] }
+): { items: FieldItem[]; players: Record<string, PlayerState>; pickups: ItemPickup[] } => {
+  if (items.length === 0) return { items, players, pickups: [] }
 
+  const newPlayers: Record<string, PlayerState> = { ...players }
   const remaining: FieldItem[] = []
   const pickups: ItemPickup[] = []
-  let current = player
 
   for (const item of items) {
     const halfSize = item.size / 2
     const hw = halfSize + settings.playerRadius
     const hh = halfSize + settings.playerRadius
     const cr = ITEM_CORNER_RADIUS + settings.playerRadius
-    const touching = pointInRoundedRect(current.position, item.position, hw, hh, cr)
 
-    if (!touching) {
+    const touchers = Object.keys(newPlayers).filter((id) =>
+      pointInRoundedRect(newPlayers[id].position, item.position, hw, hh, cr)
+    )
+
+    if (touchers.length === 0) {
       remaining.push(item)
       continue
     }
 
-    const { player: nextPlayer, awardedCount } = applyItemReward(current, item.kind, settings)
-    if (awardedCount <= 0) {
-      // 報酬を1つも適用できない (手札満杯 / HP満タン) → アイテムを残置
-      remaining.push(item)
-      continue
+    let anyAwarded = false
+    for (const id of touchers) {
+      const { player: nextPlayer, awardedCount } = applyItemReward(newPlayers[id], item.kind, settings)
+      if (awardedCount <= 0) continue
+      newPlayers[id] = nextPlayer
+      pickups.push({ itemId: item.id, kind: item.kind, pickerId: id, awardedCount })
+      anyAwarded = true
     }
 
-    current = nextPlayer
-    pickups.push({ itemId: item.id, kind: item.kind, pickerId: current.id, awardedCount })
+    if (!anyAwarded) {
+      // 触れている全員が報酬を受け取れない → アイテム残置
+      remaining.push(item)
+    }
   }
 
-  return { items: remaining, player: current, pickups }
+  return { items: remaining, players: newPlayers, pickups }
 }
