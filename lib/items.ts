@@ -214,6 +214,9 @@ export interface ItemPickup {
   kind: ItemKind
   pickerId: string
   awardedCount: number
+  // 演出用: 拾得元アイテムのフィールド座標 (px) と、付与されたカードが手札のどのインデックスに入ったか
+  originPosition: Position
+  targetIndices: number[]
 }
 
 // アイテム種別と現在の手札から、付与する演算子カードのリストを返す。
@@ -297,10 +300,23 @@ export const resolveItemPickupsForAll = (
 
     let anyAwarded = false
     for (const id of touchers) {
+      // 演出用に「カードが入る前の手札長」を per-picker で記録
+      const handLenBefore = newPlayers[id].hand.length
       const { player: nextPlayer, awardedCount } = applyItemReward(newPlayers[id], item.kind, settings)
       if (awardedCount <= 0) continue
       newPlayers[id] = nextPlayer
-      pickups.push({ itemId: item.id, kind: item.kind, pickerId: id, awardedCount })
+      // heal は手札に追加されないので targetIndices は空配列
+      const cardCount = item.kind === 'heal' ? 0 : awardedCount
+      const targetIndices: number[] = []
+      for (let i = 0; i < cardCount; i++) targetIndices.push(handLenBefore + i)
+      pickups.push({
+        itemId: item.id,
+        kind: item.kind,
+        pickerId: id,
+        awardedCount,
+        originPosition: { ...item.position },
+        targetIndices,
+      })
       anyAwarded = true
     }
 

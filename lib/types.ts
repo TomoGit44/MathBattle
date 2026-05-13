@@ -73,6 +73,23 @@ export interface FieldItem {
   size: number     // 当たり判定の直径 (px)
 }
 
+// --- 新規カードの追加イベント (演出用) ---
+// クライアントは ClientGameState.me.newCardEvents を受け取り、対応する手札スロットに
+// 「光の玉が発信元から飛んできて入れ替わりにカードが現れる」演出を再生する。
+// kind が 'deck' なら発信元はデッキアイコン、'item' なら拾得元アイテムのフィールド座標 (px)。
+export type NewCardEvent =
+  | {
+      kind: 'deck'
+      targetIndices: number[]
+      reshuffled?: boolean
+    }
+  | {
+      kind: 'item'
+      targetIndices: number[]
+      originPosition: Position    // フィールドのピクセル座標
+      itemKind: ItemKind
+    }
+
 // --- アクション ---
 // use_move_card / calculate は即時適用 (回数制限なし)。
 // attack/function/skip は「メインアクション」で、両プレイヤーが submit するとターンが解決される。
@@ -153,7 +170,7 @@ export interface SanitizedPlayerState {
 export interface ClientGameState {
   phase: GamePhase
   turn: number
-  me: PlayerState
+  me: PlayerState & { newCardEvents?: NewCardEvent[] }
   opponent: SanitizedPlayerState
   bullets: Bullet[]
   curves: FunctionCurve[]
@@ -184,7 +201,15 @@ export interface TurnResult {
   // awardedCount: 実際に手札へ追加できた演算子カードの枚数。通常アイテムは 0|1、pack は 0〜4
   itemKills?: Array<{ itemId: string; kind: ItemKind; killerId: string; awardedCount: number }>
   // 接触で拾得されたアイテム (移動アクションで触れたとき発生)
-  itemPickups?: Array<{ itemId: string; kind: ItemKind; pickerId: string; awardedCount: number }>
+  // originPosition / targetIndices はクライアント側の玉飛行演出に使う
+  itemPickups?: Array<{
+    itemId: string
+    kind: ItemKind
+    pickerId: string
+    awardedCount: number
+    originPosition: Position
+    targetIndices: number[]
+  }>
 }
 
 // --- WebSocket メッセージ (Client → Server) ---

@@ -8,6 +8,10 @@ interface HandDisplayProps {
   onToggle: (index: number) => void
   selectable: boolean
   disabledIndices?: Set<number>
+  /** 玉が飛行中で、まだ手札に「現れていない」インデックス。opacity:0 で隠す */
+  pendingIndices?: Set<number>
+  /** 玉が着地し、入場アニメーションを再生中のインデックス */
+  arrivingIndices?: Set<number>
 }
 
 const dirArrow = (d: 'up' | 'down' | 'left' | 'right'): string =>
@@ -46,7 +50,15 @@ const getStyle = (item: HandItem, selected: boolean): string => {
   }
 }
 
-export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disabledIndices }: HandDisplayProps) => {
+export const HandDisplay = ({
+  hand,
+  selectedIndices,
+  onToggle,
+  selectable,
+  disabledIndices,
+  pendingIndices,
+  arrivingIndices,
+}: HandDisplayProps) => {
   return (
     <div className="flex gap-1.5 sm:gap-2 justify-center flex-wrap">
       {hand.map((item, index) => {
@@ -55,14 +67,26 @@ export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disab
           (item.type === 'token' || item.type === 'number') && isPrimeBullet(item.value)
         const isInfinity =
           (item.type === 'token' || item.type === 'number') && !Number.isFinite(item.value)
+        const isPending = pendingIndices?.has(index) ?? false
+        const isArriving = arrivingIndices?.has(index) ?? false
+
+        // 既存カード (新規ではない) は静的表示 — 毎レンダーの mb-card-in を廃止して
+        // 「動いたカード = 新規」と分かるようにする
+        const wrapperStyle: React.CSSProperties = isPending
+          ? { opacity: 0, pointerEvents: 'none' }
+          : isArriving
+          ? {
+              animation: 'mb-card-arrival var(--dur-base) var(--ease-glide) both',
+              willChange: 'transform, opacity',
+            }
+          : {}
+
         return (
           <div
             key={index}
+            data-hand-card-index={index}
             className="relative"
-            style={{
-              animation: `mb-card-in var(--dur-base) var(--ease-glide) both`,
-              animationDelay: `${Math.min(index, 12) * 28}ms`,
-            }}
+            style={wrapperStyle}
           >
             {isPrime && <PrimeAura shape="rounded" />}
             <button
@@ -78,8 +102,8 @@ export const HandDisplay = ({ hand, selectedIndices, onToggle, selectable, disab
                   ? { boxShadow: '0 0 14px 2px var(--color-warn), inset 0 0 10px rgba(0,0,0,0.6)' }
                   : undefined
               }
-              onClick={() => !isDisabled && onToggle(index)}
-              disabled={!!isDisabled}
+              onClick={() => !isDisabled && !isPending && onToggle(index)}
+              disabled={!!isDisabled || isPending}
             >
               {getLabel(item)}
             </button>

@@ -17,6 +17,10 @@ interface ActionPanelProps {
   functionUsesRemaining: number
   settings: GameSettings
   onMovePreview?: (handIndex: number | null) => void
+  /** 玉が飛行中のカードインデックス (HandDisplay に透過) */
+  pendingCardIndices?: Set<number>
+  /** 玉が着地して入場演出中のカードインデックス */
+  arrivingCardIndices?: Set<number>
 }
 
 const dirArrow = (d: Direction): string =>
@@ -25,7 +29,7 @@ const dirArrow = (d: Direction): string =>
 const dirLabel = (d: Direction): string =>
   ({ up: '上', down: '下', left: '左', right: '右' }[d])
 
-export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, settings, onMovePreview }: ActionPanelProps) => {
+export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, settings, onMovePreview, pendingCardIndices, arrivingCardIndices }: ActionPanelProps) => {
   const [mode, setMode] = useState<ActionMode>(null)
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
   const [submitted, setSubmitted] = useState(false)
@@ -230,6 +234,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           }}
           selectable={true}
           disabledIndices={nonMoveDisabledIndices}
+          pendingIndices={pendingCardIndices}
+          arrivingIndices={arrivingCardIndices}
         />
       )}
       {mode === 'move' && (
@@ -243,6 +249,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           }}
           selectable={true}
           disabledIndices={nonMoveDisabledIndices}
+          pendingIndices={pendingCardIndices}
+          arrivingIndices={arrivingCardIndices}
         />
       )}
       {(mode === 'calculate' || mode === 'attack') && (
@@ -255,6 +263,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           }}
           selectable={true}
           disabledIndices={moveDisabledIndices}
+          pendingIndices={pendingCardIndices}
+          arrivingIndices={arrivingCardIndices}
         />
       )}
       {mode === 'function' && (
@@ -267,6 +277,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           }}
           selectable={true}
           disabledIndices={fnDisabledIndices}
+          pendingIndices={pendingCardIndices}
+          arrivingIndices={arrivingCardIndices}
         />
       )}
 

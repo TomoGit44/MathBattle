@@ -288,6 +288,7 @@ export const GameField = ({ gameState, movePreview }: GameFieldProps) => {
     <ScreenShake className="w-full">
     <div
       ref={fieldRootRef}
+      data-game-field=""
       className="relative w-full aspect-[2/1] bg-bg-mid border-2 border-line-strong rounded-lg overflow-hidden"
       style={{
         boxShadow:

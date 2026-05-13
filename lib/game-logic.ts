@@ -12,6 +12,7 @@ import type {
   GameSettings,
   Position,
   Direction,
+  NewCardEvent,
 } from './types'
 import {
   FIELD_WIDTH,
@@ -160,24 +161,38 @@ const replenishMoves = (
   return { hand: [...hand, ...added], added }
 }
 
+export interface ExecuteDrawResult {
+  state: GameState
+  decks: Map<string, Card[]>
+  drawnCards: Record<string, HandItem[]>
+  pickups: ItemPickup[]
+  // 演出用: per-player に「デッキから引いた / 補充された」カードのインデックス情報
+  // (アイテム拾得分は pickups 側に originPosition + targetIndices として入っている)
+  newCardEvents: Record<string, NewCardEvent[]>
+}
+
 export const executeDraw = (
   state: GameState,
   decks: Map<string, Card[]>
-): { state: GameState; decks: Map<string, Card[]>; drawnCards: Record<string, HandItem[]>; pickups: ItemPickup[] } => {
+): ExecuteDrawResult => {
   const newPlayers = { ...state.players }
   const newDecks = new Map(decks)
   const drawnCards: Record<string, HandItem[]> = {}
+  const newCardEvents: Record<string, NewCardEvent[]> = {}
   const drawCount = state.settings.drawCount
   const maxHandSize = state.settings.maxHandSize
 
   for (const [id, player] of Object.entries(newPlayers)) {
     let deck = newDecks.get(id) ?? []
     // デッキが空なら新しいシャッフル済みデフォルトデッキで補充
+    let reshuffled = false
     if (deck.length === 0) {
       deck = shuffleDeck(createDefaultDeck())
       newDecks.set(id, deck)
+      reshuffled = true
     }
     const canDraw = Math.min(drawCount, deck.length, maxHandSize - player.hand.length)
+    const handLenBefore = player.hand.length
     let handAfter = player.hand
     let drawnList: HandItem[] = []
     let remainingDeck = deck
@@ -197,6 +212,18 @@ export const executeDraw = (
 
     drawnCards[id] = [...drawnList, ...numAdded, ...moveAdded]
 
+    // デッキ由来 (draw + 補充) の追加カードはすべて末尾連続のインデックスに入る
+    const deckAddedCount = drawnCards[id].length
+    if (deckAddedCount > 0) {
+      const indices: number[] = []
+      for (let i = 0; i < deckAddedCount; i++) indices.push(handLenBefore + i)
+      const evt: NewCardEvent = { kind: 'deck', targetIndices: indices }
+      if (reshuffled) evt.reshuffled = true
+      newCardEvents[id] = [evt]
+    } else {
+      newCardEvents[id] = []
+    }
+
     newPlayers[id] = {
       ...player,
       hand: replenishedHand,
@@ -212,12 +239,25 @@ export const executeDraw = (
   const pickupRes = resolveItemPickupsForAll(newPlayers, newItems, state.settings)
   newItems = pickupRes.items
   Object.assign(newPlayers, pickupRes.players)
+  // 拾得イベントは originPosition / itemKind 付きで NewCardEvent に変換
+  // (heal は targetIndices 空 → 玉飛行不要なのでスキップ)
+  for (const pk of pickupRes.pickups) {
+    if (pk.targetIndices.length === 0) continue
+    if (!newCardEvents[pk.pickerId]) newCardEvents[pk.pickerId] = []
+    newCardEvents[pk.pickerId].push({
+      kind: 'item',
+      targetIndices: pk.targetIndices,
+      originPosition: pk.originPosition,
+      itemKind: pk.kind,
+    })
+  }
 
   return {
     state: { ...state, phase: 'action', players: newPlayers, items: newItems },
     decks: newDecks,
     drawnCards,
     pickups: pickupRes.pickups,
+    newCardEvents,
   }
 }
 
@@ -521,6 +561,8 @@ export const resolveActions = (
 export interface SanitizeOptions {
   // 相手の視覚的な位置を上書きする (action フェーズ中に「相手の即時移動」を隠すために使用)
   opponentVisiblePosition?: Position
+  // 演出用: 自プレイヤーの newCardEvents を me に載せる (デッキ/アイテムからの玉飛行アニメ)
+  newCardEvents?: NewCardEvent[]
 }
 
 export const sanitizeStateForPlayer = (
@@ -554,10 +596,14 @@ export const sanitizeStateForPlayer = (
         functionUsesRemaining: MAX_FUNCTION_USES,
       }
 
+  const meOut = opts?.newCardEvents && opts.newCardEvents.length > 0
+    ? { ...me, newCardEvents: opts.newCardEvents }
+    : me
+
   return {
     phase: state.phase,
     turn: state.turn,
-    me,
+    me: meOut,
     opponent,
     bullets: state.bullets,
     curves: state.curves,

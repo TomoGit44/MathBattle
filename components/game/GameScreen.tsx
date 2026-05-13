@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { Action, ClientGameState, Position } from '@/lib/types'
 import { GameField } from './GameField'
 import { HpBar } from './HpBar'
@@ -9,6 +9,8 @@ import { OpponentInfo } from './OpponentInfo'
 import { TurnResult } from './TurnResult'
 import { ActionLog, type LogEntry } from './ActionLog'
 import { LowHpVignette } from './LowHpVignette'
+import { DeckIcon } from './DeckIcon'
+import { CardOrbOverlay } from './CardOrbOverlay'
 import { INITIAL_HP } from '@/lib/constants'
 
 interface GameScreenProps {
@@ -32,6 +34,59 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
   const [actionLog, setActionLog] = useState<LogEntry[]>([])
   const [logOpen, setLogOpen] = useState(false)
   const [movePreviewIndex, setMovePreviewIndex] = useState<number | null>(null)
+
+  // 新規カード演出: 飛行中 (pending) と着地後の入場アニメ中 (arriving) を管理
+  const [pendingCardIndices, setPendingCardIndices] = useState<Set<number>>(new Set())
+  const [arrivingCardIndices, setArrivingCardIndices] = useState<Set<number>>(new Set())
+  const [reshuffling, setReshuffling] = useState(false)
+  const fieldRef = useRef<HTMLElement | null>(null)
+
+  // GameField の DOM を取得 (data-game-field 属性で検索)
+  useEffect(() => {
+    fieldRef.current = document.querySelector<HTMLElement>('[data-game-field]')
+  })
+
+  // ターン or フェーズが変わるたび pending/arriving をリセット (古いインデックスが残らないように)
+  useEffect(() => {
+    setPendingCardIndices(new Set())
+    setArrivingCardIndices(new Set())
+    setReshuffling(false)
+  }, [turn])
+
+  const handleOrbPending = useCallback((indices: number[]) => {
+    setPendingCardIndices((prev) => {
+      const next = new Set(prev)
+      for (const i of indices) next.add(i)
+      return next
+    })
+  }, [])
+
+  const handleOrbArrived = useCallback((index: number) => {
+    setPendingCardIndices((prev) => {
+      const next = new Set(prev)
+      next.delete(index)
+      return next
+    })
+    setArrivingCardIndices((prev) => {
+      const next = new Set(prev)
+      next.add(index)
+      return next
+    })
+    // 入場アニメーションが終わる頃に arriving からも除去 (~--dur-base = 320ms)
+    setTimeout(() => {
+      setArrivingCardIndices((prev) => {
+        const next = new Set(prev)
+        next.delete(index)
+        return next
+      })
+    }, 360)
+  }, [])
+
+  const handleReshuffleStart = useCallback(() => {
+    setReshuffling(true)
+    // CardOrbOverlay 側で 600ms 待ってから飛ばすので、それと同期
+    setTimeout(() => setReshuffling(false), 700)
+  }, [])
 
   // アクションフェーズが変わるたびにActionPanelをリセット
   useEffect(() => {
@@ -140,14 +195,25 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           functionUsesRemaining={me.functionUsesRemaining}
           settings={settings}
           onMovePreview={handleMovePreview}
+          pendingCardIndices={pendingCardIndices}
+          arrivingCardIndices={arrivingCardIndices}
         />
       </div>
 
       {/* 自分の情報 + ログボタン */}
       <div className="w-full flex items-center justify-between gap-2 text-xs text-text-faint mb-tabular">
-        <span>
-          手札: <span className={me.hand.length >= settings.maxHandSize ? 'text-error font-bold' : ''}>{me.hand.length}/{settings.maxHandSize}</span>枚 / デッキ残: {me.deckRemaining}枚 / 関数残: {me.functionUsesRemaining}回
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>
+            手札: <span className={me.hand.length >= settings.maxHandSize ? 'text-error font-bold' : ''}>{me.hand.length}/{settings.maxHandSize}</span>枚
+          </span>
+          <DeckIcon
+            count={me.deckRemaining}
+            side="me"
+            ownerId={me.id}
+            reshuffling={reshuffling}
+          />
+          <span>関数残: {me.functionUsesRemaining}回</span>
+        </div>
         <button
           onClick={() => setLogOpen(true)}
           className="px-2 py-1 rounded border border-line bg-bg-mid hover:bg-bg-elev text-text-mid text-xs flex items-center gap-1 transition-colors duration-[var(--dur-fast)]"
@@ -168,6 +234,16 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           intensity={Math.max(0.3, 1 - me.hp / (INITIAL_HP * 0.25))}
         />
       )}
+
+      {/* 新規カードの玉飛行演出 (フルスクリーン overlay) */}
+      <CardOrbOverlay
+        events={me.newCardEvents}
+        meId={me.id}
+        fieldRef={fieldRef}
+        onArrived={handleOrbArrived}
+        onPending={handleOrbPending}
+        onReshuffleStart={handleReshuffleStart}
+      />
     </div>
   )
 }

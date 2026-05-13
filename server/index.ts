@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { createServer } from 'http'
-import type { GameState, Card, Action, ClientMessage, ServerMessage, Position } from '../lib/types'
+import type { GameState, Card, Action, ClientMessage, ServerMessage, Position, NewCardEvent } from '../lib/types'
 import {
   initializeGameState,
   addPlayer,
@@ -43,6 +43,8 @@ interface Room {
   turnStartPositions: Map<string, Position>
   // 即時アクション (移動・ドロー直後) で発生したアイテム拾得を蓄積し、次の TurnResult で公開する
   pendingItemPickups: ItemPickup[]
+  // 直近のドロー/拾得で「新規カードを玉飛行で表示する」イベント。1度送ったらクリア。
+  pendingNewCardEvents: Map<string, NewCardEvent[]>
 }
 
 const rooms = new Map<string, Room>()
@@ -57,6 +59,7 @@ const createRoom = (roomId: string): Room => ({
   actionTimer: null,
   turnStartPositions: new Map(),
   pendingItemPickups: [],
+  pendingNewCardEvents: new Map(),
 })
 
 // ターン開始時の位置スナップショットを記録 (action フェーズ中の相手秘匿表示用)
@@ -70,14 +73,23 @@ const captureTurnStartPositions = (room: Room) => {
 // 指定 viewerId 視点でサニタイズする際のオプションを構築する。
 // action フェーズ中は相手の現在位置を常にターン開始時の位置で上書きする
 // (移動カードによる即時移動を相手から見えないようにするため)。
+// また pendingNewCardEvents が viewer に対して登録されていればそれも載せる (玉飛行演出用)。
 const sanitizeOptsFor = (room: Room, viewerId: string) => {
-  if (room.gameState.phase !== 'action') return undefined
-  const opponentEntry = Object.entries(room.gameState.players).find(([id]) => id !== viewerId)
-  if (!opponentEntry) return undefined
-  const [oppId] = opponentEntry
-  const original = room.turnStartPositions.get(oppId)
-  if (!original) return undefined
-  return { opponentVisiblePosition: original }
+  const opts: { opponentVisiblePosition?: Position; newCardEvents?: NewCardEvent[] } = {}
+
+  if (room.gameState.phase === 'action') {
+    const opponentEntry = Object.entries(room.gameState.players).find(([id]) => id !== viewerId)
+    if (opponentEntry) {
+      const [oppId] = opponentEntry
+      const original = room.turnStartPositions.get(oppId)
+      if (original) opts.opponentVisiblePosition = original
+    }
+  }
+
+  const events = room.pendingNewCardEvents.get(viewerId)
+  if (events && events.length > 0) opts.newCardEvents = events
+
+  return Object.keys(opts).length > 0 ? opts : undefined
 }
 
 const getOrCreateRoom = (roomId: string): Room => {
@@ -141,9 +153,16 @@ const startNewTurn = (room: Room) => {
   if (result.pickups.length > 0) {
     room.pendingItemPickups.push(...result.pickups)
   }
+  // 新規カード演出: ドロー直後の executeDraw が返す per-player イベントを保持。
+  // 1度配信したらクリアして、計算等の即時応答には含めない。
+  room.pendingNewCardEvents.clear()
+  for (const [pid, evts] of Object.entries(result.newCardEvents)) {
+    if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
+  }
   // ターン開始位置をスナップショット (相手側の移動秘匿表示用)
   captureTurnStartPositions(room)
   sendStateToAll(room)
+  room.pendingNewCardEvents.clear()
   startActionTimer(room)
 }
 
@@ -165,6 +184,21 @@ const resolveRound = (room: Room) => {
       ...(turnResult.itemPickups ?? []),
       ...room.pendingItemPickups,
     ]
+
+    // 拾得イベントを新規カード演出 (玉飛行) としても配信
+    room.pendingNewCardEvents.clear()
+    for (const pk of room.pendingItemPickups) {
+      if (pk.targetIndices.length === 0) continue
+      const evts = room.pendingNewCardEvents.get(pk.pickerId) ?? []
+      evts.push({
+        kind: 'item',
+        targetIndices: pk.targetIndices,
+        originPosition: pk.originPosition,
+        itemKind: pk.kind,
+      })
+      room.pendingNewCardEvents.set(pk.pickerId, evts)
+    }
+
     room.pendingItemPickups = []
   }
 
@@ -185,6 +219,7 @@ const resolveRound = (room: Room) => {
   }
 
   sendStateToAll(room, turnResult)
+  room.pendingNewCardEvents.clear()
 
   if (room.gameState.phase === 'gameover') return
 
@@ -227,10 +262,16 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, dec
   if (drawn.pickups.length > 0) {
     room.pendingItemPickups.push(...drawn.pickups)
   }
+  // 初手の新規カード演出 (全カードがデッキから飛んでくる)
+  room.pendingNewCardEvents.clear()
+  for (const [pid, evts] of Object.entries(drawn.newCardEvents)) {
+    if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
+  }
 
   // ゲーム開始時のターン開始位置を記録
   captureTurnStartPositions(room)
   sendStateToAll(room)
+  room.pendingNewCardEvents.clear()
   startActionTimer(room)
 }
 
@@ -349,6 +390,7 @@ const handleDisconnect = (room: Room, connId: string) => {
   // ルームが空になったら削除
   if (room.players.size === 0) {
     if (room.actionTimer) clearTimeout(room.actionTimer)
+    room.pendingNewCardEvents.clear()
     rooms.delete(room.id)
   }
 }
