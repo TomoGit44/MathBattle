@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import type { Action, HandItem, GameSettings, Direction } from '@/lib/types'
 import { HandDisplay } from './HandDisplay'
 import { FunctionPreview, type FunctionSequenceEntry } from './FunctionPreview'
+import { CalculationPreview } from './CalculationPreview'
 import { validateCalculation, calcErrorMessage } from '@/lib/calc-engine'
 import { FIELD_WIDTH, FIELD_HEIGHT } from '@/lib/constants'
 
@@ -354,6 +355,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
       {/* 計算 (1ターンに何度でも実行可能) */}
       {mode === 'calculate' && (
         <div className="flex flex-col gap-2 items-center">
+          <CalculationPreview hand={hand} selectedIndices={Array.from(selectedIndices)} />
           <div className="flex gap-2 justify-center items-center flex-wrap">
             <span className="text-sm text-text-dim">カードを選択して計算</span>
             <button
