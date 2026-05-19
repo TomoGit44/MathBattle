@@ -414,6 +414,52 @@ interface TurnResult {
 - ネストした `if/else` より早期リターンを優先する
 - `server/index.ts` は500行以内を目安に、重いロジック (計算・物理・勝敗判定など) は `lib/` に切り出す。WebSocket bootstrap や接続管理 (heartbeat, ws イベントハンドラ) はサーバー側に残してよい
 
+## Git 運用ルール (こまめにプッシュする)
+
+**原則:** 「ある程度の変更」が区切りに達したら、その都度コミット & `git push origin main` まで行うこと。ローカルに変更を溜め込まない。
+
+### プッシュする区切りの目安 (いずれかを満たしたら push する)
+
+- **機能単位:** 1つの機能・バグ修正・リファクタが動く状態になった (例: 新カード追加、ダメージ計算修正、UI 1コンポーネントの追加)
+- **ファイル規模:** 変更行数が **およそ 200 行** を超えた、または 5 ファイル以上を触った
+- **時間単位:** 連続して作業しているとき、**30〜60分** ごとに区切りを作る
+- **タスク終了時:** ユーザーへの返答 (「完了しました」等) を返す直前は必ず確認する
+- **ビルドが通る状態:** `npm run build` が成功するタイミング。失敗するコードは push しない (WIP コミットを残したい場合は別ブランチで)
+
+### 手順 (毎回これを踏む)
+
+1. `git status` / `git diff` で変更内容を確認する
+2. 機密ファイル (`.env`, 認証情報) が含まれていないか確認する
+3. ファイル単位で `git add <path>` する。**`git add -A` / `git add .` は使わない** (意図しないファイル混入を避けるため)
+4. コミットメッセージは Conventional Commits 風に短く書く:
+   - `feat(items): <要約>` / `fix(curves): <要約>` / `refactor(server): <要約>` / `docs: <要約>` / `chore: <要約>`
+   - 本文に Co-Authored-By 行を必ず付ける (リポジトリ既存コミットに準拠)
+5. `git push origin main` でリモートに反映する
+6. push 失敗時 (リモートが進んでいる等) は `git pull --rebase origin main` で取り込み、衝突を解消してから再 push
+
+### やってはいけないこと
+
+- **`--no-verify` / `--no-gpg-sign`** などフック・署名のスキップ (ユーザーが明示的に指示したときのみ)
+- **`git push --force` / `--force-with-lease`** を `main` に対して使用すること
+- **`git commit --amend`** で既に push 済みのコミットを書き換えること
+- **ユーザーが明示的にコミットを指示していないのに勝手にコミットすること** (Git 安全プロトコル準拠)
+  - ※ ただしユーザーから「こまめに push して」と継続指示が出ている場合 (本ドキュメント運用時) はその指示を許可と見なす
+- ビルドエラー・型エラーを残したまま push すること
+
+### コミットメッセージ例
+
+```
+feat(calc): add prime synthesis particle effect
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+```
+
+```
+fix(physics): correct prime bullet pass-through on equal values
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+```
+
 ## よく使うコマンド
 ```bash
 npm run dev              # フロントエンド開発サーバー (port 3000)
