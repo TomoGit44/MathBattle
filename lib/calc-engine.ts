@@ -22,8 +22,8 @@ export type CalcError =
   | 'bad_index'      // 範囲外/NaN/非整数のインデックス
   | 'duplicate'      // 重複インデックス
   | 'pattern'        // 数字-演算子-数字 の交互でない
-  | 'has_infinity'   // 無限カードは計算に使えない
-  | 'invalid'        // その他 (NaN等)
+  | 'nan'            // 計算結果が NaN (∞ - ∞ など)
+  | 'invalid'        // その他 (構造不正)
 
 export const validateCalculation = (
   hand: HandItem[],
@@ -45,13 +45,14 @@ export const validateCalculation = (
   // 重複チェック
   if (new Set(cardIndices).size !== cardIndices.length) return 'duplicate'
 
-  // 数字-演算子-数字 の交互パターンチェック
+  // 数字-演算子-数字 の交互パターンチェック (∞ も数値として使える)
   for (let i = 0; i < cardIndices.length; i++) {
     const item = hand[cardIndices[i]]
     if (i % 2 === 0) {
       const v = getNumericValue(item)
       if (v === null) return 'pattern'
-      if (!Number.isFinite(v)) return 'has_infinity'
+      // NaN は弾く (Infinity/-Infinity は OK)
+      if (Number.isNaN(v)) return 'invalid'
     } else {
       if (getOperator(item) === null) return 'pattern'
     }
@@ -87,11 +88,27 @@ export const evaluateCalculation = (items: HandItem[]): number | null => {
       const b = values[i + 1]
       let v: number
       if (op === '×') {
+        // ∞ × 0 = NaN → 計算失敗
         v = a * b
+        if (Number.isNaN(v)) return null
       } else {
-        // 0除算 → 無限大トークンを生成 (この時点で評価を打ち切り Infinity を返す)
-        if (b === 0) return Infinity
-        v = a / b
+        // ÷ 特殊ケース:
+        //   - 0 ÷ 0 = NaN (失敗)
+        //   - ∞ ÷ ∞ = 0 (user 仕様で明示)
+        //   - a ÷ 0 (a≠0) = ±∞
+        //   - 0 ÷ ∞ = 0 (JS native)
+        if (Number.isNaN(a) || Number.isNaN(b)) return null
+        const aInf = !Number.isFinite(a)
+        const bInf = !Number.isFinite(b)
+        if (aInf && bInf) {
+          v = 0
+        } else if (b === 0) {
+          if (a === 0) return null // 0/0 = NaN
+          v = a > 0 ? Infinity : -Infinity
+        } else {
+          v = a / b
+          if (Number.isNaN(v)) return null
+        }
       }
       values.splice(i, 2, v)
       ops.splice(i, 1)
@@ -108,6 +125,8 @@ export const evaluateCalculation = (items: HandItem[]): number | null => {
     if (op === '+') result += next
     else if (op === '-') result -= next
     else return null
+    // ∞ - ∞ などで NaN になった場合は計算失敗
+    if (Number.isNaN(result)) return null
   }
 
   if (Number.isNaN(result)) return null
@@ -172,8 +191,8 @@ export const calcErrorMessage = (err: CalcError): string => {
       return '同じカードを複数選んでいます'
     case 'pattern':
       return '数字 → 演算 → 数字 の順で並べてください'
-    case 'has_infinity':
-      return '無限 (∞) は計算に使えません'
+    case 'nan':
+      return '計算結果が不定 (NaN) です'
     case 'invalid':
       return '計算式が不正です'
   }

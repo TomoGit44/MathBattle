@@ -2,7 +2,7 @@
 // プロジェクトルートの game-config.json を読み込む。
 // ファイルが存在しない / パース失敗時はデフォルト値を使う。
 //
-// 設定値:
+// 主要な設定値:
 //   actionTimeoutSec:     アクション選択フェーズのタイムアウト (秒)。0 以下で時間制限なし
 //   bulletDiameter:       弾の当たり判定の直径 (px)
 //   playerDiameter:       プレイヤーの当たり判定の直径 (px)
@@ -10,6 +10,9 @@
 //   wallReflectionBonus:  壁反射時に弾の数値に加算される量 (整数、単位なし)
 //   mathXMax:             数学座標の x 軸の右端 (左端は -mathXMax、対称)
 //                         y 軸の上下端はフィールドのアスペクト比から自動計算
+//   slots / pools / decayFactor:
+//                         毎ターン補充の枠数・カードプール・確率低下係数。
+//                         詳細は CLAUDE.md「カードシステム」参照
 //
 // フィールドは 800×400 px で固定。mathXMax から pixelsPerUnit と mathYMax が導出される
 // (数学座標 ↔ ピクセル変換に使う)。サイズ系は px 指定なので mathXMax を変えても視覚サイズは不変。
@@ -24,13 +27,13 @@ import {
   DEFAULT_HEAL_AMOUNT_MIN,
   DEFAULT_HEAL_AMOUNT_MAX,
   MAX_ITEMS,
-  DRAW_COUNT,
   MAX_HAND_SIZE,
-  MIN_DECK_SIZE,
-  MAX_DECK_SIZE,
   ANIMATION_DURATION_MS,
+  DEFAULT_SLOTS,
+  DEFAULT_POOLS,
+  DEFAULT_DECAY_FACTOR,
 } from './constants'
-import type { GameSettings, ItemKind } from './types'
+import type { Card, GameSettings, ItemKind, PoolEntry, SlotKind } from './types'
 
 export type { GameSettings }
 
@@ -47,11 +50,11 @@ export interface GameConfig {
   maxItems: number          // フィールド上の同時存在上限
   healAmountMin: number     // heal 取得時の最小回復量
   healAmountMax: number     // heal 取得時の最大回復量
-  drawCount: number         // 1ターンにドローする枚数
   maxHandSize: number       // 手札の上限枚数
-  minDeckSize: number       // デッキの下限枚数 (構築時の最小値)
-  maxDeckSize: number       // デッキの上限枚数 (構築時の最大値)
   animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
+  slots: Record<SlotKind, number>
+  pools: Record<SlotKind, PoolEntry[]>
+  decayFactor: number
 }
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -66,14 +69,19 @@ const DEFAULT_CONFIG: GameConfig = {
   maxItems: MAX_ITEMS,
   healAmountMin: DEFAULT_HEAL_AMOUNT_MIN,
   healAmountMax: DEFAULT_HEAL_AMOUNT_MAX,
-  drawCount: DRAW_COUNT,
   maxHandSize: MAX_HAND_SIZE,
-  minDeckSize: MIN_DECK_SIZE,
-  maxDeckSize: MAX_DECK_SIZE,
   animationDurationMs: ANIMATION_DURATION_MS,
+  slots: { ...DEFAULT_SLOTS },
+  pools: {
+    operator: DEFAULT_POOLS.operator.map((e) => ({ ...e, card: { ...e.card } })),
+    number: DEFAULT_POOLS.number.map((e) => ({ ...e, card: { ...e.card } })),
+    other: DEFAULT_POOLS.other.map((e) => ({ ...e, card: { ...e.card } })),
+  },
+  decayFactor: DEFAULT_DECAY_FACTOR,
 }
 
 const ITEM_KIND_KEYS: ItemKind[] = ['+', '-', '×', '÷', 'pack', 'heal']
+const SLOT_KIND_KEYS: SlotKind[] = ['operator', 'number', 'other']
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 const CONFIG_PATH = resolve(process.cwd(), 'game-config.json')
@@ -83,6 +91,61 @@ const isPositiveNumber = (v: unknown): v is number =>
 
 const isNonNegativeNumber = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0
+
+// 設定ファイル上の数値リテラル ("Infinity" / "-Infinity" を含む) を JavaScript の number に変換。
+// json-codec のセンチネル文字列もここで受け入れる。
+const parseNumberLike = (v: unknown): number | null => {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') {
+    if (v === 'Infinity' || v === '__INF__') return Infinity
+    if (v === '-Infinity' || v === '__NEG_INF__') return -Infinity
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+// 設定ファイルの "card" オブジェクトをバリデーションして Card に変換 (失敗時は null)。
+const parseCard = (raw: unknown): Card | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as { type?: unknown; value?: unknown; operator?: unknown; direction?: unknown }
+  if (r.type === 'number') {
+    const v = parseNumberLike(r.value)
+    if (v === null) return null
+    if (Number.isNaN(v)) return null
+    return { type: 'number', value: v }
+  }
+  if (r.type === 'operator') {
+    if (r.operator === '+' || r.operator === '-' || r.operator === '×' || r.operator === '÷') {
+      return { type: 'operator', operator: r.operator }
+    }
+    return null
+  }
+  if (r.type === 'move') {
+    if (r.direction === 'up' || r.direction === 'down' || r.direction === 'left' || r.direction === 'right') {
+      return { type: 'move', direction: r.direction }
+    }
+    return null
+  }
+  return null
+}
+
+// 設定の pools[slotKind] を PoolEntry[] にパース (各 baseWeight は >0 必須)。
+const parsePoolEntries = (raw: unknown): PoolEntry[] | null => {
+  if (!Array.isArray(raw)) return null
+  const out: PoolEntry[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const obj = item as { card?: unknown; baseWeight?: unknown }
+    const card = parseCard(obj.card)
+    if (!card) continue
+    const w = typeof obj.baseWeight === 'number' && obj.baseWeight > 0 && Number.isFinite(obj.baseWeight)
+      ? obj.baseWeight
+      : 1
+    out.push({ card, baseWeight: w })
+  }
+  return out.length > 0 ? out : null
+}
 
 const validate = (raw: unknown): GameConfig => {
   if (!raw || typeof raw !== 'object') return DEFAULT_CONFIG
@@ -149,27 +212,47 @@ const validate = (raw: unknown): GameConfig => {
     cfg.healAmountMax = cfg.healAmountMin
   }
 
-  // ドロー枚数 / 手札上限 / デッキサイズ。すべて非負整数で受け取る。
-  if (isNonNegativeNumber(obj.drawCount) && Number.isInteger(obj.drawCount)) {
-    cfg.drawCount = obj.drawCount
-  }
   if (isPositiveNumber(obj.maxHandSize) && Number.isInteger(obj.maxHandSize)) {
     cfg.maxHandSize = obj.maxHandSize
-  }
-  if (isPositiveNumber(obj.minDeckSize) && Number.isInteger(obj.minDeckSize)) {
-    cfg.minDeckSize = obj.minDeckSize
-  }
-  if (isPositiveNumber(obj.maxDeckSize) && Number.isInteger(obj.maxDeckSize)) {
-    cfg.maxDeckSize = obj.maxDeckSize
-  }
-  // min > max の逆転は max を min に揃えて整合させる
-  if (cfg.maxDeckSize < cfg.minDeckSize) {
-    cfg.maxDeckSize = cfg.minDeckSize
   }
 
   // アニメーション時間 (ms)。極端に短い値を防ぐため最低 200ms にクランプ。
   if (isPositiveNumber(obj.animationDurationMs)) {
     cfg.animationDurationMs = Math.max(200, Math.floor(obj.animationDurationMs))
+  }
+
+  // slots: 各枠数 (0 以上の整数)。値が無効なキーはデフォルトのまま。
+  if (obj.slots && typeof obj.slots === 'object') {
+    const s = obj.slots as Record<string, unknown>
+    const nextSlots: Record<SlotKind, number> = { ...cfg.slots }
+    for (const k of SLOT_KIND_KEYS) {
+      const v = s[k]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && Number.isInteger(v)) {
+        nextSlots[k] = v
+      }
+    }
+    cfg.slots = nextSlots
+  }
+
+  // pools: 各枠のカードプール。未指定の枠はデフォルトのまま。空配列を渡すと「この枠は無効」となるが
+  // 設定の意図的な抑止 (slots=0 と組み合わせ) を妨げないため許可しない (パース失敗扱い)。
+  if (obj.pools && typeof obj.pools === 'object') {
+    const p = obj.pools as Record<string, unknown>
+    const nextPools: Record<SlotKind, PoolEntry[]> = {
+      operator: cfg.pools.operator,
+      number: cfg.pools.number,
+      other: cfg.pools.other,
+    }
+    for (const k of SLOT_KIND_KEYS) {
+      const entries = parsePoolEntries(p[k])
+      if (entries) nextPools[k] = entries
+    }
+    cfg.pools = nextPools
+  }
+
+  // decayFactor: (0, 1] の範囲。範囲外はデフォルトに戻す。
+  if (typeof obj.decayFactor === 'number' && Number.isFinite(obj.decayFactor) && obj.decayFactor > 0 && obj.decayFactor <= 1) {
+    cfg.decayFactor = obj.decayFactor
   }
 
   return cfg
@@ -193,11 +276,15 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     maxItems: cfg.maxItems,
     healAmountMin: cfg.healAmountMin,
     healAmountMax: cfg.healAmountMax,
-    drawCount: cfg.drawCount,
     maxHandSize: cfg.maxHandSize,
-    minDeckSize: cfg.minDeckSize,
-    maxDeckSize: cfg.maxDeckSize,
     animationDurationMs: cfg.animationDurationMs,
+    slots: { ...cfg.slots },
+    pools: {
+      operator: cfg.pools.operator.map((e) => ({ ...e, card: { ...e.card } })),
+      number: cfg.pools.number.map((e) => ({ ...e, card: { ...e.card } })),
+      other: cfg.pools.other.map((e) => ({ ...e, card: { ...e.card } })),
+    },
+    decayFactor: cfg.decayFactor,
   }
 }
 

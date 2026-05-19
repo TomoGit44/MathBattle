@@ -1,116 +1,46 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { BackgroundGrid } from '@/components/game/BackgroundGrid'
-import { DeckBuilder } from '@/components/lobby/DeckBuilder'
-import { createDefaultDeck, validateDeck } from '@/lib/deck'
-import type { Card } from '@/lib/types'
 
-const DECK_STORAGE_KEY = 'mathbattle:deck'
-const PENDING_DECK_KEY = 'mathbattle:pendingDeck'
-
-interface LobbyConfig {
-  minDeckSize: number
-  maxDeckSize: number
-}
+// 旧仕様 (デッキ構築) で localStorage に保存されていたキー。
+// 新仕様では使われないので起動時に削除する。
+const LEGACY_DECK_KEYS = ['mathbattle:deck', 'mathbattle:pendingDeck']
 
 const Home = () => {
   const [name, setName] = useState('')
   const [roomId, setRoomId] = useState('')
-  const [deck, setDeck] = useState<Card[]>(() => createDefaultDeck())
-  // game-config.json に基づくデッキ制限値。null の間は constants の既定値が使われる。
-  const [lobbyCfg, setLobbyCfg] = useState<LobbyConfig | null>(null)
   const router = useRouter()
 
-  // サーバー側で読み込まれた設定値を取得 (失敗時は constants デフォルトを使う)
-  useEffect(() => {
-    let cancelled = false
-    const fetchConfig = async () => {
-      try {
-        const res = await fetch('/api/game-config', { cache: 'no-store' })
-        if (!res.ok) return
-        const data = (await res.json()) as Partial<LobbyConfig>
-        if (cancelled) return
-        if (
-          typeof data.minDeckSize === 'number' &&
-          typeof data.maxDeckSize === 'number'
-        ) {
-          setLobbyCfg({ minDeckSize: data.minDeckSize, maxDeckSize: data.maxDeckSize })
-        }
-      } catch {
-        // ネットワーク失敗時は既定値のまま
-      }
-    }
-    fetchConfig()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const limits = useMemo(
-    () => (lobbyCfg ? { minDeckSize: lobbyCfg.minDeckSize, maxDeckSize: lobbyCfg.maxDeckSize } : undefined),
-    [lobbyCfg]
-  )
-
-  // 保存済みデッキを復元 (初回マウント時のみ)
+  // 旧仕様の保存デッキを一掃 (デッキ制度廃止に伴う移行クリーンアップ)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(DECK_STORAGE_KEY)
-      if (!saved) return
-      const parsed = JSON.parse(saved)
-      if (validateDeck(parsed, limits) === null) {
-        setDeck(parsed as Card[])
+      for (const k of LEGACY_DECK_KEYS) {
+        localStorage.removeItem(k)
+        sessionStorage.removeItem(k)
       }
     } catch {
-      // 破損時は無視 (デフォルトのまま)
+      // ストレージアクセス不可環境は無視
     }
-    // limits が後から取得されても再復元はしない (ユーザーの編集を尊重)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // 変更のたびに保存 (検証通過時のみ)
-  useEffect(() => {
-    if (validateDeck(deck, limits) !== null) return
-    try {
-      localStorage.setItem(DECK_STORAGE_KEY, JSON.stringify(deck))
-    } catch {
-      // 容量超過などは無視
-    }
-  }, [deck, limits])
 
   const generateRoomId = () => {
     return Math.random().toString(36).substring(2, 8).toUpperCase()
   }
 
-  // 検証通過時のみ送る (失敗時はサーバーがデフォルトに差し替える)
-  const stashDeckForGame = () => {
-    if (validateDeck(deck, limits) !== null) {
-      sessionStorage.removeItem(PENDING_DECK_KEY)
-      return
-    }
-    try {
-      sessionStorage.setItem(PENDING_DECK_KEY, JSON.stringify(deck))
-    } catch {
-      // ignore
-    }
-  }
-
   const handleCreate = () => {
     if (!name.trim()) return
     const id = generateRoomId()
-    stashDeckForGame()
     router.push(`/game/${id}?name=${encodeURIComponent(name.trim())}`)
   }
 
   const handleJoin = () => {
     if (!name.trim() || !roomId.trim()) return
-    stashDeckForGame()
     router.push(`/game/${roomId.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`)
   }
 
-  const deckValid = validateDeck(deck, limits) === null
-  const canStart = name.trim().length > 0 && deckValid
+  const canStart = name.trim().length > 0
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen gap-8 p-4">
@@ -155,13 +85,6 @@ const Home = () => {
             className="w-full px-4 py-3 bg-bg-mid border border-line rounded-lg text-text focus:outline-none focus:border-p1 transition-colors duration-[var(--dur-fast)]"
           />
         </div>
-
-        <DeckBuilder
-          deck={deck}
-          onChange={setDeck}
-          minDeckSize={lobbyCfg?.minDeckSize}
-          maxDeckSize={lobbyCfg?.maxDeckSize}
-        />
 
         <button
           onClick={handleCreate}

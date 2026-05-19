@@ -1,4 +1,4 @@
-import type { Card, ItemKind } from './types'
+import type { ItemKind, PoolEntry, SlotKind } from './types'
 
 // フィールド
 export const FIELD_WIDTH = 800
@@ -15,19 +15,12 @@ export const BASE_BULLET_SPEED = 80
 export const SPEED_DECAY_FACTOR = 0.15
 export const WALL_REFLECTION_BONUS = 3
 export const MAX_REFLECTIONS = 3
+// 無限弾の最低速度 (∞ は速度式で 0 になるため最低速にクランプ)
+export const INFINITY_BULLET_SPEED = 0
 
 // カード・手札
-export const DRAW_COUNT = 2
 export const MAX_HAND_SIZE = 16
 export const MAX_CALC_CARDS = 5
-export const NUMBER_REPLENISH_THRESHOLD = 3
-// 移動カードの自動補充: ターン開始時、各方向ごとに不足分を1枚ずつ補充する
-export const MOVE_AUTO_REPLENISH = true
-
-// デッキ構築の制限
-export const MIN_DECK_SIZE = 5
-export const MAX_DECK_SIZE = 20
-export const MAX_SAME_CARD_COUNT = 6  // 同名カードの投入上限
 
 // ターン
 // ※ ACTION_TIMEOUT_MS は game-config.json (lib/config.ts) で上書き可能。
@@ -84,13 +77,40 @@ export const MATH_Y_MAX = 5
 export const GRID_SPACING_X = 0.5
 export const GRID_SPACING_Y = 0.5
 
-// デフォルトデッキ (演算カード7枚のみ。数字カード1-9は手札補充で供給)
-export const DEFAULT_DECK: Card[] = [
-  { type: 'operator', operator: '+' },
-  { type: 'operator', operator: '+' },
-  { type: 'operator', operator: '×' },
-  { type: 'operator', operator: '×' },
-  { type: 'operator', operator: '-' },
-  { type: 'operator', operator: '÷' },
-  { type: 'operator', operator: '÷' },
-]
+// --- スロット & プールのデフォルト ---
+// 旧仕様互換: 演算子1枠 + 数字2枠 + その他1枠 = 計4枚補充
+export const DEFAULT_SLOTS: Record<SlotKind, number> = {
+  operator: 1,
+  number: 2,
+  other: 1,
+}
+
+// 永続スタック式の確率低下係数。0.5 で配るたびに半減。
+export const DEFAULT_DECAY_FACTOR = 0.5
+
+// デフォルトの共通カードプール (旧仕様互換: 数字 1〜9 / 演算子4種 / 移動4方向)
+export const DEFAULT_POOLS: Record<SlotKind, PoolEntry[]> = {
+  operator: [
+    { card: { type: 'operator', operator: '+' }, baseWeight: 1 },
+    { card: { type: 'operator', operator: '-' }, baseWeight: 1 },
+    { card: { type: 'operator', operator: '×' }, baseWeight: 1 },
+    { card: { type: 'operator', operator: '÷' }, baseWeight: 1 },
+  ],
+  number: [
+    { card: { type: 'number', value: 1 }, baseWeight: 1 },
+    { card: { type: 'number', value: 2 }, baseWeight: 1 },
+    { card: { type: 'number', value: 3 }, baseWeight: 1 },
+    { card: { type: 'number', value: 4 }, baseWeight: 1 },
+    { card: { type: 'number', value: 5 }, baseWeight: 1 },
+    { card: { type: 'number', value: 6 }, baseWeight: 1 },
+    { card: { type: 'number', value: 7 }, baseWeight: 1 },
+    { card: { type: 'number', value: 8 }, baseWeight: 1 },
+    { card: { type: 'number', value: 9 }, baseWeight: 1 },
+  ],
+  other: [
+    { card: { type: 'move', direction: 'up' }, baseWeight: 1 },
+    { card: { type: 'move', direction: 'down' }, baseWeight: 1 },
+    { card: { type: 'move', direction: 'left' }, baseWeight: 1 },
+    { card: { type: 'move', direction: 'right' }, baseWeight: 1 },
+  ],
+}

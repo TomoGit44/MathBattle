@@ -109,6 +109,27 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
     setSelectedIndices(new Set())
   }, [onSubmit, selectedIndices, hand])
 
+  // 手札カードを捨てる即時アクション (回数無制限)
+  const discardCard = useCallback((index: number) => {
+    onSubmit({ type: 'discard', handIndex: index })
+    // 選択中インデックスがあれば、その削除に合わせてズレを補正
+    setSelectedIndices((prev) => {
+      const next = new Set<number>()
+      for (const i of prev) {
+        if (i === index) continue
+        next.add(i > index ? i - 1 : i)
+      }
+      return next
+    })
+    setFunctionSequence((prev) =>
+      prev
+        .filter((e) => !(e.type === 'hand' && e.index === index))
+        .map((e) => (e.type === 'hand' && e.index > index ? { ...e, index: e.index - 1 } : e))
+    )
+    if (movePreviewIndex === index) setMovePreviewIndex(null)
+    else if (movePreviewIndex != null && movePreviewIndex > index) setMovePreviewIndex(movePreviewIndex - 1)
+  }, [onSubmit, movePreviewIndex])
+
   // 現在の選択状態に対する計算バリデーション結果 (UI制御用)
   const calcValidationError =
     mode === 'calculate' && selectedIndices.size > 0
@@ -236,6 +257,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={nonMoveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
+          onDiscard={discardCard}
         />
       )}
       {mode === 'move' && (
@@ -251,6 +273,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={nonMoveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
+          onDiscard={discardCard}
         />
       )}
       {(mode === 'calculate' || mode === 'attack') && (
@@ -265,6 +288,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={moveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
+          onDiscard={discardCard}
         />
       )}
       {mode === 'function' && (
@@ -279,6 +303,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={fnDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
+          onDiscard={discardCard}
         />
       )}
 

@@ -12,12 +12,24 @@ export type NumberToken = { type: 'token'; value: number }
 // 手札のアイテム (カードまたは合成済みトークン)
 export type HandItem = Card | NumberToken
 
-// --- デッキ ---
-export interface Deck {
-  id: string
-  name: string
-  cards: Card[]
+// --- スロット & カードプール ---
+// 毎ターンの補充は3つの「枠」 (slot) で構成され、各枠は独立した共通プールから抽選される。
+//   operator: 演算子カード (+ - × ÷ など)
+//   number:   数字カード (0, 1〜9, -1, 0.5, ∞ などプール側で自由定義)
+//   other:    移動カードを含む「その他」枠 (今後の新カード追加先)
+export type SlotKind = 'operator' | 'number' | 'other'
+
+// プールに含まれる1エントリ。baseWeight が大きいほど抽選で出やすい。
+// 一度配ると drawCounts が加算され、抽選時の実効重みは
+//   effectiveWeight = baseWeight × decayFactor ^ drawCounts[cardKey(card)]
+// で減衰する (永続スタック式)。
+export interface PoolEntry {
+  card: Card
+  baseWeight: number
 }
+
+// プールエントリの正規化キー (drawCounts のキーとして使う)
+export type CardKey = string
 
 // --- フィールド ---
 export interface Position {
@@ -76,12 +88,12 @@ export interface FieldItem {
 // --- 新規カードの追加イベント (演出用) ---
 // クライアントは ClientGameState.me.newCardEvents を受け取り、対応する手札スロットに
 // 「光の玉が発信元から飛んできて入れ替わりにカードが現れる」演出を再生する。
-// kind が 'deck' なら発信元はデッキアイコン、'item' なら拾得元アイテムのフィールド座標 (px)。
+// kind が 'pool' なら発信元はカードプールアイコン (次ターンプレビュー)、
+// 'item' なら拾得元アイテムのフィールド座標 (px)。
 export type NewCardEvent =
   | {
-      kind: 'deck'
+      kind: 'pool'
       targetIndices: number[]
-      reshuffled?: boolean
     }
   | {
       kind: 'item'
@@ -90,14 +102,35 @@ export type NewCardEvent =
       itemKind: ItemKind
     }
 
+// --- 手札ログ (自分分のみ。ActionLog の「手札変化」セクションに表示) ---
+export type HandLogReason =
+  | 'draw_op'      // 補充 (演算子枠)
+  | 'draw_num'     // 補充 (数字枠)
+  | 'draw_other'   // 補充 (その他枠)
+  | 'attack'       // 攻撃で発射
+  | 'function'     // 関数で消費
+  | 'calc'         // 計算で消費
+  | 'calc_result'  // 計算結果として追加
+  | 'use_move'     // 移動カード使用で消費
+  | 'discard'      // 自分で捨てた
+  | 'item_kill'    // アイテム撃破で獲得
+  | 'item_pickup'  // アイテム接触で獲得
+
+export interface HandLogEntry {
+  kind: 'add' | 'remove'
+  cardLabel: string  // '7' '∞' '+' '↑' など表示用
+  reason: HandLogReason
+}
+
 // --- アクション ---
-// use_move_card / calculate は即時適用 (回数制限なし)。
+// use_move_card / calculate / discard は即時適用 (回数制限なし)。
 // attack/function/skip は「メインアクション」で、両プレイヤーが submit するとターンが解決される。
 export type Action =
   | { type: 'use_move_card'; handIndex: number }
   | { type: 'calculate'; cardIndices: number[] }
   | { type: 'attack'; handIndex: number }
   | { type: 'function'; cardIndices: number[]; xPositions: number[] }
+  | { type: 'discard'; handIndex: number }
   | { type: 'skip' }       // メインアクションをスキップ
 
 // --- プレイヤー ---
@@ -108,8 +141,11 @@ export interface PlayerState {
   position: Position
   facing: 'left' | 'right'
   hand: HandItem[]
-  deckRemaining: number
   functionUsesRemaining: number
+  // 抽選確率低下用: これまで配られた累積カウント (cardKey → 回数)
+  drawCounts: Record<CardKey, number>
+  // 次ターン補充が確定済みの (両者公開) カード列
+  nextDraw: HandItem[]
 }
 
 // --- ゲーム ---
@@ -136,11 +172,14 @@ export interface GameSettings {
   maxItems: number       // フィールド上の同時存在アイテム数の上限
   healAmountMin: number  // heal アイテム獲得時の最小回復量
   healAmountMax: number  // heal アイテム獲得時の最大回復量
-  drawCount: number      // 1ターンにドローする枚数
   maxHandSize: number    // 手札の上限枚数
-  minDeckSize: number    // デッキの下限枚数 (デッキ構築時)
-  maxDeckSize: number    // デッキの上限枚数 (デッキ構築時)
   animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
+  // 毎ターン補充の枠数 (0 以上の整数)
+  slots: Record<SlotKind, number>
+  // 各枠の共通カードプール
+  pools: Record<SlotKind, PoolEntry[]>
+  // 永続スタック式の確率低下係数 (0 < decayFactor ≤ 1)。1 で減衰なし。
+  decayFactor: number
 }
 
 export interface GameState {
@@ -162,8 +201,9 @@ export interface SanitizedPlayerState {
   position: Position
   facing: 'left' | 'right'
   handCount: number
-  deckRemaining: number
   functionUsesRemaining: number
+  // 次ターン補充プレビューは両者公開
+  nextDraw: HandItem[]
 }
 
 // --- クライアントに送るゲーム状態 ---
@@ -210,11 +250,15 @@ export interface TurnResult {
     originPosition: Position
     targetIndices: number[]
   }>
+  // 自分の手札変動ログ (サーバーが viewer ごとにフィルタしてから配信)
+  handLog?: HandLogEntry[]
+  // 回復イベント (負ダメージ弾・heal アイテム)。playerId → 累積回復量。
+  heals?: Record<string, number>
 }
 
 // --- WebSocket メッセージ (Client → Server) ---
 export type ClientMessage =
-  | { type: 'join'; name: string; deck?: Card[] }
+  | { type: 'join'; name: string }
   | { type: 'action'; action: Action }
 
 // --- WebSocket メッセージ (Server → Client) ---
@@ -223,3 +267,32 @@ export type ServerMessage =
   | { type: 'gameState'; state: ClientGameState }
   | { type: 'error'; message: string }
   | { type: 'gameOver'; winnerId: string | null; state: ClientGameState }
+
+// --- 共通ユーティリティ: カードラベル / cardKey ---
+// プールエントリのキー正規化。drawCounts のキーとして使う。
+export const cardKey = (c: Card): CardKey => {
+  if (c.type === 'number') {
+    if (c.value === Infinity) return 'n:Inf'
+    if (c.value === -Infinity) return 'n:-Inf'
+    return `n:${c.value}`
+  }
+  if (c.type === 'operator') return `o:${c.operator}`
+  return `m:${c.direction}`
+}
+
+const dirArrow = (d: Direction): string =>
+  ({ up: '↑', down: '↓', left: '←', right: '→' }[d])
+
+// 手札ログや UI 表示で使うカードラベル
+export const handItemLabel = (item: HandItem): string => {
+  switch (item.type) {
+    case 'number':
+      return Number.isFinite(item.value) ? String(item.value) : item.value > 0 ? '∞' : '-∞'
+    case 'token':
+      return Number.isFinite(item.value) ? String(item.value) : item.value > 0 ? '∞' : '-∞'
+    case 'operator':
+      return item.operator
+    case 'move':
+      return dirArrow(item.direction)
+  }
+}

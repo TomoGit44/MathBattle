@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import { createServer } from 'http'
-import type { GameState, Card, Action, ClientMessage, ServerMessage, Position, NewCardEvent } from '../lib/types'
+import type { GameState, Action, ClientMessage, ServerMessage, Position, NewCardEvent, HandLogEntry, TurnResult } from '../lib/types'
+import { handItemLabel } from '../lib/types'
 import {
   initializeGameState,
   addPlayer,
@@ -9,20 +10,18 @@ import {
   resolveActions,
   sanitizeStateForPlayer,
   applyImmediateMove,
+  applyDiscard,
 } from '../lib/game-logic'
-import { createDefaultDeck, sanitizeDeck } from '../lib/deck'
 import { checkGameOver } from '../lib/damage'
 import { tryApplyCalculation, calcErrorMessage } from '../lib/calc-engine'
 import { isPrimeBullet } from '../lib/prime'
 import { loadConfig, isUnlimited, toGameSettings } from '../lib/config'
 import { encodeMessage, decodeMessage } from '../lib/json-codec'
-import type { TurnResult } from '../lib/types'
 import type { ItemPickup } from '../lib/items'
 
 const CONFIG = loadConfig()
 const GAME_SETTINGS = toGameSettings(CONFIG)
 // 次ターン開始までの遅延 = アニメーション再生時間 + 1秒の余白
-// (クライアント側のアニメ完了を待ってからサーバーが新ターンの状態を送る)
 const TURN_DELAY_MS = GAME_SETTINGS.animationDurationMs + 1000
 
 interface PlayerConnection {
@@ -34,7 +33,6 @@ interface PlayerConnection {
 interface Room {
   id: string
   gameState: GameState
-  decks: Map<string, Card[]>
   pendingActions: Map<string, Action>
   playerOrder: string[]
   players: Map<string, PlayerConnection>
@@ -45,6 +43,10 @@ interface Room {
   pendingItemPickups: ItemPickup[]
   // 直近のドロー/拾得で「新規カードを玉飛行で表示する」イベント。1度送ったらクリア。
   pendingNewCardEvents: Map<string, NewCardEvent[]>
+  // 手札変動ログを viewer ごとにバッファ。
+  // 補充 / 即時アクション (calc/move/discard) / 解決時 (attack/function) の追加・削除を蓄積し、
+  // 次のターン結果送信時に TurnResult.handLog として viewer ごとに配信する。
+  pendingHandEvents: Map<string, HandLogEntry[]>
 }
 
 const rooms = new Map<string, Room>()
@@ -52,7 +54,6 @@ const rooms = new Map<string, Room>()
 const createRoom = (roomId: string): Room => ({
   id: roomId,
   gameState: initializeGameState(GAME_SETTINGS),
-  decks: new Map(),
   pendingActions: new Map(),
   playerOrder: [],
   players: new Map(),
@@ -60,9 +61,9 @@ const createRoom = (roomId: string): Room => ({
   turnStartPositions: new Map(),
   pendingItemPickups: [],
   pendingNewCardEvents: new Map(),
+  pendingHandEvents: new Map(),
 })
 
-// ターン開始時の位置スナップショットを記録 (action フェーズ中の相手秘匿表示用)
 const captureTurnStartPositions = (room: Room) => {
   room.turnStartPositions.clear()
   for (const [id, p] of Object.entries(room.gameState.players)) {
@@ -70,10 +71,6 @@ const captureTurnStartPositions = (room: Room) => {
   }
 }
 
-// 指定 viewerId 視点でサニタイズする際のオプションを構築する。
-// action フェーズ中は相手の現在位置を常にターン開始時の位置で上書きする
-// (移動カードによる即時移動を相手から見えないようにするため)。
-// また pendingNewCardEvents が viewer に対して登録されていればそれも載せる (玉飛行演出用)。
 const sanitizeOptsFor = (room: Room, viewerId: string) => {
   const opts: { opponentVisiblePosition?: Position; newCardEvents?: NewCardEvent[] } = {}
 
@@ -107,21 +104,44 @@ const send = (ws: WebSocket, msg: ServerMessage) => {
   }
 }
 
-const sendStateToAll = (room: Room, turnResult?: ReturnType<typeof resolveActions>['turnResult']) => {
+// HandLog バッファに追記
+const pushHandEvent = (room: Room, viewerId: string, entry: HandLogEntry) => {
+  const arr = room.pendingHandEvents.get(viewerId) ?? []
+  arr.push(entry)
+  room.pendingHandEvents.set(viewerId, arr)
+}
+
+const pushHandEvents = (room: Room, viewerId: string, entries: HandLogEntry[]) => {
+  if (entries.length === 0) return
+  const arr = room.pendingHandEvents.get(viewerId) ?? []
+  arr.push(...entries)
+  room.pendingHandEvents.set(viewerId, arr)
+}
+
+// TurnResult を viewer ごとに「自分の handLog のみ」付与した形に変換して送る。
+const sendStateToAll = (room: Room, turnResult?: TurnResult) => {
   for (const [playerId, pc] of room.players) {
     if (!room.gameState.players[playerId]) continue
+
+    let personalResult: TurnResult | undefined = turnResult
+    if (turnResult) {
+      personalResult = {
+        ...turnResult,
+        handLog: room.pendingHandEvents.get(playerId) ?? [],
+      }
+    }
 
     if (room.gameState.phase === 'gameover') {
       const { winnerId } = checkGameOver(room.gameState.players)
       send(pc.ws, {
         type: 'gameOver',
         winnerId,
-        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult, sanitizeOptsFor(room, playerId)),
+        state: sanitizeStateForPlayer(room.gameState, playerId, personalResult, sanitizeOptsFor(room, playerId)),
       })
     } else {
       send(pc.ws, {
         type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, playerId, turnResult, sanitizeOptsFor(room, playerId)),
+        state: sanitizeStateForPlayer(room.gameState, playerId, personalResult, sanitizeOptsFor(room, playerId)),
       })
     }
   }
@@ -129,7 +149,6 @@ const sendStateToAll = (room: Room, turnResult?: ReturnType<typeof resolveAction
 
 const startActionTimer = (room: Room) => {
   if (room.actionTimer) clearTimeout(room.actionTimer)
-  // 設定で 0 以下なら時間制限なし → タイマーを起動しない
   if (isUnlimited(CONFIG)) {
     room.actionTimer = null
     return
@@ -146,20 +165,20 @@ const startActionTimer = (room: Room) => {
 
 const startNewTurn = (room: Room) => {
   room.gameState = { ...room.gameState, turn: room.gameState.turn + 1 }
-  const result = executeDraw(room.gameState, room.decks)
+  const result = executeDraw(room.gameState)
   room.gameState = result.state
-  room.decks = result.decks
   room.pendingActions.clear()
   if (result.pickups.length > 0) {
     room.pendingItemPickups.push(...result.pickups)
   }
-  // 新規カード演出: ドロー直後の executeDraw が返す per-player イベントを保持。
-  // 1度配信したらクリアして、計算等の即時応答には含めない。
   room.pendingNewCardEvents.clear()
   for (const [pid, evts] of Object.entries(result.newCardEvents)) {
     if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
   }
-  // ターン開始位置をスナップショット (相手側の移動秘匿表示用)
+  // 補充ログをバッファに加える (次回 resolveRound で TurnResult.handLog として送る)
+  for (const [pid, entries] of Object.entries(result.handLogEvents)) {
+    pushHandEvents(room, pid, entries)
+  }
   captureTurnStartPositions(room)
   sendStateToAll(room)
   room.pendingNewCardEvents.clear()
@@ -175,17 +194,20 @@ const resolveRound = (room: Room) => {
   room.gameState = { ...room.gameState, phase: 'resolving' }
 
   const actions = Object.fromEntries(room.pendingActions)
-  const { state, turnResult } = resolveActions(room.gameState, actions)
+  const { state, turnResult, handLogsByPlayer } = resolveActions(room.gameState, actions)
   room.gameState = state
 
-  // ターン中に発生した接触拾得を TurnResult に反映してから配信
+  // resolveActions 内で発生した hand 変動 (attack/function/item-kill) を viewer ごとにバッファへ追加
+  for (const [pid, entries] of Object.entries(handLogsByPlayer)) {
+    pushHandEvents(room, pid, entries)
+  }
+
   if (room.pendingItemPickups.length > 0) {
     turnResult.itemPickups = [
       ...(turnResult.itemPickups ?? []),
       ...room.pendingItemPickups,
     ]
 
-    // 拾得イベントを新規カード演出 (玉飛行) としても配信
     room.pendingNewCardEvents.clear()
     for (const pk of room.pendingItemPickups) {
       if (pk.targetIndices.length === 0) continue
@@ -202,7 +224,6 @@ const resolveRound = (room: Room) => {
     room.pendingItemPickups = []
   }
 
-  // 同時拾得ログ (同一 itemId に複数 pickerId が記録されているもの)
   if (turnResult.itemPickups && turnResult.itemPickups.length >= 2) {
     const countByItem = new Map<string, number>()
     for (const p of turnResult.itemPickups) {
@@ -220,6 +241,8 @@ const resolveRound = (room: Room) => {
 
   sendStateToAll(room, turnResult)
   room.pendingNewCardEvents.clear()
+  // handLog はこのターン分で消費。次ターンは新たな補充ログから始まる。
+  room.pendingHandEvents.clear()
 
   if (room.gameState.phase === 'gameover') return
 
@@ -228,7 +251,7 @@ const resolveRound = (room: Room) => {
   }, TURN_DELAY_MS)
 }
 
-const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, deck?: Card[]) => {
+const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => {
   if (room.playerOrder.includes(connId)) return
   if (room.playerOrder.length >= 2) {
     send(ws, { type: 'error', message: 'ルームが満員です' })
@@ -238,12 +261,6 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, dec
   const isFirst = room.playerOrder.length === 0
   room.playerOrder.push(connId)
   room.players.set(connId, { ws, id: connId, name })
-  // 不正なデッキはデフォルトに差し替え (サーバー権威)
-  const deckLimits = {
-    minDeckSize: GAME_SETTINGS.minDeckSize,
-    maxDeckSize: GAME_SETTINGS.maxDeckSize,
-  }
-  room.decks.set(connId, deck ? sanitizeDeck(deck, deckLimits) : createDefaultDeck())
   room.gameState = addPlayer(room.gameState, connId, name, isFirst)
 
   if (room.playerOrder.length < 2) {
@@ -251,24 +268,23 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string, dec
     return
   }
 
-  // 2人揃った → ゲーム開始
-  const started = startGame(room.gameState, room.decks)
-  room.gameState = started.state
-  room.decks = started.decks
+  // 2人揃った → ゲーム開始 (turn=1 用の nextDraw を事前抽選)
+  room.gameState = startGame(room.gameState)
 
-  const drawn = executeDraw(room.gameState, room.decks)
+  // 初回ドロー (turn=1 の補充)
+  const drawn = executeDraw(room.gameState)
   room.gameState = drawn.state
-  room.decks = drawn.decks
   if (drawn.pickups.length > 0) {
     room.pendingItemPickups.push(...drawn.pickups)
   }
-  // 初手の新規カード演出 (全カードがデッキから飛んでくる)
   room.pendingNewCardEvents.clear()
   for (const [pid, evts] of Object.entries(drawn.newCardEvents)) {
     if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
   }
+  for (const [pid, entries] of Object.entries(drawn.handLogEvents)) {
+    pushHandEvents(room, pid, entries)
+  }
 
-  // ゲーム開始時のターン開始位置を記録
   captureTurnStartPositions(room)
   sendStateToAll(room)
   room.pendingNewCardEvents.clear()
@@ -294,8 +310,8 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     if (next.pickups.length > 0) {
       room.pendingItemPickups.push(...next.pickups)
     }
+    pushHandEvents(room, connId, next.handLog)
 
-    // 移動した本人にだけ通知。相手には送らない (移動を秘匿)。
     send(ws, {
       type: 'gameState',
       state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
@@ -308,13 +324,13 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     const player = room.gameState.players[connId]
     if (!player) return
 
-    // cardIndices の形を防御的に検証
     if (!Array.isArray(action.cardIndices)) {
       send(ws, { type: 'error', message: '計算リクエストが不正です' })
       return
     }
 
-    const result = tryApplyCalculation(player.hand, action.cardIndices)
+    const handBefore = player.hand
+    const result = tryApplyCalculation(handBefore, action.cardIndices)
     if (!result.ok) {
       send(ws, { type: 'error', message: calcErrorMessage(result.reason) })
       return
@@ -329,8 +345,18 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
       },
     }
 
-    // 素数合成検出 → PRIME演出用の TurnResult を即時送信
+    // HandLog: 消費したカード (remove × N) + 結果トークン (add)
+    for (const idx of action.cardIndices) {
+      const item = handBefore[idx]
+      if (!item) continue
+      pushHandEvent(room, connId, { kind: 'remove', cardLabel: handItemLabel(item), reason: 'calc' })
+    }
     const last = newHand[newHand.length - 1]
+    if (last) {
+      pushHandEvent(room, connId, { kind: 'add', cardLabel: handItemLabel(last), reason: 'calc_result' })
+    }
+
+    // 素数合成検出 → PRIME演出用の TurnResult を即時送信
     let primeResult: TurnResult | undefined
     if (last && last.type === 'token' && isPrimeBullet(last.value)) {
       primeResult = {
@@ -344,13 +370,36 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
       }
     }
 
-    // 当該プレイヤーにのみ更新後のstateを送信 (相手の手札増減は handCount で見える)
     send(ws, {
       type: 'gameState',
       state: sanitizeStateForPlayer(room.gameState, connId, primeResult, sanitizeOptsFor(room, connId)),
     })
 
-    // 相手にも opponent.handCount の更新を反映 (相手の移動有無・新位置は秘匿)
+    // 相手にも handCount 更新を反映 (TurnResult は付けない)
+    for (const [otherId, pc] of room.players) {
+      if (otherId === connId) continue
+      send(pc.ws, {
+        type: 'gameState',
+        state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
+      })
+    }
+    return
+  }
+
+  // 捨て札は即時処理 (回数制限なし)
+  if (action.type === 'discard') {
+    const next = applyDiscard(room.gameState, connId, action.handIndex)
+    if (!next) {
+      send(ws, { type: 'error', message: '捨てるカードが不正です' })
+      return
+    }
+    room.gameState = next.state
+    pushHandEvents(room, connId, next.handLog)
+
+    send(ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
+    })
     for (const [otherId, pc] of room.players) {
       if (otherId === connId) continue
       send(pc.ws, {
@@ -387,21 +436,19 @@ const handleDisconnect = (room: Room, connId: string) => {
 
   room.players.delete(connId)
 
-  // ルームが空になったら削除
   if (room.players.size === 0) {
     if (room.actionTimer) clearTimeout(room.actionTimer)
     room.pendingNewCardEvents.clear()
+    room.pendingHandEvents.clear()
     rooms.delete(room.id)
   }
 }
 
 // --- HTTP + WebSocket サーバー起動 ---
-// Render等のホスティングは PORT 環境変数を渡してくる
 const PORT = Number(process.env.PORT) || 1999
 let connCounter = 0
 
 const httpServer = createServer((req, res) => {
-  // CORSヘッダー
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -418,8 +465,6 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer })
 
-// アイドル切断対策: 30秒ごとに ping を送り、pong が返らない接続は terminate する
-// Render 等のホスティング側 LB が無通信の WebSocket を ~10分で切るのを回避する
 const HEARTBEAT_INTERVAL_MS = 30_000
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
@@ -443,7 +488,6 @@ wss.on('connection', (ws, req) => {
     ;(ws as WebSocket & { isAlive?: boolean }).isAlive = true
   })
 
-  // URLからルームIDを取得: /room/ROOM_ID
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const pathParts = url.pathname.split('/').filter(Boolean)
   const roomId = pathParts[pathParts.length - 1] ?? 'default'
@@ -470,12 +514,11 @@ wss.on('connection', (ws, req) => {
       return
     }
 
-    // ハンドラ内で例外が出てもサーバーがクラッシュしないように包む
     try {
       switch (parsed.type) {
         case 'join':
           if (typeof parsed.name === 'string') {
-            handleJoin(room, ws, connId, parsed.name, parsed.deck)
+            handleJoin(room, ws, connId, parsed.name)
           }
           break
         case 'action':
@@ -496,7 +539,6 @@ wss.on('connection', (ws, req) => {
   })
 })
 
-// 最終防衛線: 想定外の例外でもプロセスを落とさない
 process.on('uncaughtException', (err) => {
   console.error('[fatal] uncaughtException:', err)
 })

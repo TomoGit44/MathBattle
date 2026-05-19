@@ -1,4 +1,40 @@
-import type { TurnResult } from '@/lib/types'
+import type { HandLogEntry, HandLogReason, TurnResult } from '@/lib/types'
+
+const reasonLabel = (reason: HandLogReason): string => {
+  switch (reason) {
+    case 'draw_op': return '演算子枠 補充'
+    case 'draw_num': return '数字枠 補充'
+    case 'draw_other': return 'その他枠 補充'
+    case 'attack': return '攻撃で発射'
+    case 'function': return '関数で消費'
+    case 'calc': return '計算で消費'
+    case 'calc_result': return '計算結果'
+    case 'use_move': return '移動で使用'
+    case 'discard': return '捨てた'
+    case 'item_kill': return 'アイテム撃破で獲得'
+    case 'item_pickup': return 'アイテム拾得で獲得'
+  }
+}
+
+const HandLogSection = ({ entries }: { entries: HandLogEntry[] }) => {
+  if (!entries || entries.length === 0) return null
+  return (
+    <div className="space-y-0.5">
+      <div className="text-[10px] uppercase tracking-wider text-text-faint">
+        手札の変動
+      </div>
+      {entries.map((e, i) => (
+        <div key={i} className="text-xs leading-snug mb-tabular">
+          <span className={e.kind === 'add' ? 'text-op-add' : 'text-error'}>
+            {e.kind === 'add' ? '＋' : '−'}
+          </span>{' '}
+          <span className="font-bold text-text">{e.cardLabel}</span>
+          <span className="text-text-faint"> ({reasonLabel(e.reason)})</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export interface LogEntry {
   turn: number
@@ -92,6 +128,8 @@ const LogEntryItem = ({
   const primeEntries = Object.entries(result.primeSynthesis ?? {})
   const itemKills = result.itemKills ?? []
   const itemPickups = result.itemPickups ?? []
+  const handLog = result.handLog ?? []
+  const healEntries = Object.entries(result.heals ?? {})
 
   return (
     <li
@@ -114,6 +152,23 @@ const LogEntryItem = ({
           {actionEntries.map(([pid, a]) => (
             <div key={pid} className="text-xs text-text leading-snug">
               <span className="text-text-dim">▸</span> {a.description}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 手札の変動 (自分分のみ) */}
+      <HandLogSection entries={handLog} />
+
+      {/* 回復イベント */}
+      {healEntries.length > 0 && (
+        <div className="space-y-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-text-faint">
+            回復
+          </div>
+          {healEntries.map(([pid, hp]) => (
+            <div key={pid} className="text-xs leading-snug mb-tabular text-op-add">
+              ❤️ {nameOf(pid)} <span className="font-bold">+{hp}</span> HP
             </div>
           ))}
         </div>

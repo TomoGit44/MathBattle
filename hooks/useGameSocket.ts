@@ -1,21 +1,18 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Action, Card, ClientGameState, ServerMessage } from '@/lib/types'
+import type { Action, ClientGameState, ServerMessage } from '@/lib/types'
 import { encodeMessage, decodeMessage } from '@/lib/json-codec'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
-export const useGameSocket = (roomId: string, playerName: string, deck?: Card[]) => {
+export const useGameSocket = (roomId: string, playerName: string) => {
   const [gameState, setGameState] = useState<ClientGameState | null>(null)
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [error, setError] = useState<string | null>(null)
   const [isWaiting, setIsWaiting] = useState(false)
   const [gameOverWinnerId, setGameOverWinnerId] = useState<string | null | undefined>(undefined)
   const socketRef = useRef<WebSocket | null>(null)
-  // open ハンドラ内で参照する用。再接続を防ぐため deps には入れない。
-  const deckRef = useRef<Card[] | undefined>(deck)
-  deckRef.current = deck
 
   useEffect(() => {
     // 接続URL解決の優先順位:
@@ -25,7 +22,6 @@ export const useGameSocket = (roomId: string, playerName: string, deck?: Card[])
     const wsUrlBase = process.env.NEXT_PUBLIC_WS_URL
     let url: string
     if (wsUrlBase) {
-      // 末尾スラッシュを除去
       const trimmed = wsUrlBase.replace(/\/+$/, '')
       url = `${trimmed}/room/${roomId}`
     } else {
@@ -39,7 +35,7 @@ export const useGameSocket = (roomId: string, playerName: string, deck?: Card[])
 
     socket.addEventListener('open', () => {
       setStatus('connected')
-      socket.send(encodeMessage({ type: 'join', name: playerName, deck: deckRef.current }))
+      socket.send(encodeMessage({ type: 'join', name: playerName }))
     })
 
     socket.addEventListener('message', (event) => {

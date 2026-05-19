@@ -12,6 +12,8 @@ interface HandDisplayProps {
   pendingIndices?: Set<number>
   /** 玉が着地し、入場アニメーションを再生中のインデックス */
   arrivingIndices?: Set<number>
+  /** カードを「捨てる」即時アクション。指定されていると各カードの右上に🗑️ボタンが出る */
+  onDiscard?: (index: number) => void
 }
 
 const dirArrow = (d: 'up' | 'down' | 'left' | 'right'): string =>
@@ -19,16 +21,15 @@ const dirArrow = (d: 'up' | 'down' | 'left' | 'right'): string =>
 
 const getLabel = (item: HandItem): string => {
   switch (item.type) {
-    case 'number': return Number.isFinite(item.value) ? String(item.value) : '∞'
+    case 'number': return Number.isFinite(item.value) ? String(item.value) : item.value > 0 ? '∞' : '-∞'
     case 'operator': return item.operator
-    case 'token': return Number.isFinite(item.value) ? String(item.value) : '∞'
+    case 'token': return Number.isFinite(item.value) ? String(item.value) : item.value > 0 ? '∞' : '-∞'
     case 'move': return dirArrow(item.direction)
   }
 }
 
 const getStyle = (item: HandItem, selected: boolean): string => {
   // タッチターゲット最小 44px (Apple HIG / Material Guidelines)
-  // 触感: hover で持ち上げ + ボーダー強調、active で押し込み、selected でスケール+リング
   const base =
     'w-11 h-14 sm:w-12 sm:h-16 rounded-lg border-2 flex items-center justify-center font-bold text-base sm:text-lg cursor-pointer touch-manipulation mb-tabular ' +
     'transition-[transform,border-color,background-color,box-shadow] duration-[var(--dur-fast)] [transition-timing-function:var(--ease-glide)] ' +
@@ -58,6 +59,7 @@ export const HandDisplay = ({
   disabledIndices,
   pendingIndices,
   arrivingIndices,
+  onDiscard,
 }: HandDisplayProps) => {
   return (
     <div className="flex gap-1.5 sm:gap-2 justify-center flex-wrap">
@@ -70,8 +72,6 @@ export const HandDisplay = ({
         const isPending = pendingIndices?.has(index) ?? false
         const isArriving = arrivingIndices?.has(index) ?? false
 
-        // 既存カード (新規ではない) は静的表示 — 毎レンダーの mb-card-in を廃止して
-        // 「動いたカード = 新規」と分かるようにする
         const wrapperStyle: React.CSSProperties = isPending
           ? { opacity: 0, pointerEvents: 'none' }
           : isArriving
@@ -107,6 +107,22 @@ export const HandDisplay = ({
             >
               {getLabel(item)}
             </button>
+            {/* 捨てる即時アクション (回数無制限)。
+                onDiscard が渡され、かつ飛行演出中でない場合だけ右上に小ボタンを表示する。 */}
+            {onDiscard && !isPending && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDiscard(index)
+                }}
+                aria-label={`${getLabel(item)} を捨てる`}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-deep border border-error/50 text-error text-[10px] flex items-center justify-center shadow hover:bg-error hover:text-bg-deep transition-colors duration-[var(--dur-fast)]"
+                style={{ lineHeight: 1 }}
+              >
+                ×
+              </button>
+            )}
           </div>
         )
       })}

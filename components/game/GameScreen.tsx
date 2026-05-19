@@ -9,7 +9,7 @@ import { OpponentInfo } from './OpponentInfo'
 import { TurnResult } from './TurnResult'
 import { ActionLog, type LogEntry } from './ActionLog'
 import { LowHpVignette } from './LowHpVignette'
-import { DeckIcon } from './DeckIcon'
+import { NextDrawPreview } from './NextDrawPreview'
 import { CardOrbOverlay } from './CardOrbOverlay'
 import { INITIAL_HP } from '@/lib/constants'
 
@@ -38,7 +38,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
   // 新規カード演出: 飛行中 (pending) と着地後の入場アニメ中 (arriving) を管理
   const [pendingCardIndices, setPendingCardIndices] = useState<Set<number>>(new Set())
   const [arrivingCardIndices, setArrivingCardIndices] = useState<Set<number>>(new Set())
-  const [reshuffling, setReshuffling] = useState(false)
   const fieldRef = useRef<HTMLElement | null>(null)
 
   // GameField の DOM を取得 (data-game-field 属性で検索)
@@ -50,7 +49,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
   useEffect(() => {
     setPendingCardIndices(new Set())
     setArrivingCardIndices(new Set())
-    setReshuffling(false)
   }, [turn])
 
   const handleOrbPending = useCallback((indices: number[]) => {
@@ -80,12 +78,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
         return next
       })
     }, 360)
-  }, [])
-
-  const handleReshuffleStart = useCallback(() => {
-    setReshuffling(true)
-    // CardOrbOverlay 側で 600ms 待ってから飛ばすので、それと同期
-    setTimeout(() => setReshuffling(false), 700)
   }, [])
 
   // アクションフェーズが変わるたびにActionPanelをリセット
@@ -206,12 +198,7 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           <span>
             手札: <span className={me.hand.length >= settings.maxHandSize ? 'text-error font-bold' : ''}>{me.hand.length}/{settings.maxHandSize}</span>枚
           </span>
-          <DeckIcon
-            count={me.deckRemaining}
-            side="me"
-            ownerId={me.id}
-            reshuffling={reshuffling}
-          />
+          <NextDrawPreview cards={me.nextDraw} isMe anchorId={me.id} />
           <span>関数残: {me.functionUsesRemaining}回</span>
         </div>
         <button
@@ -242,7 +229,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
         fieldRef={fieldRef}
         onArrived={handleOrbArrived}
         onPending={handleOrbPending}
-        onReshuffleStart={handleReshuffleStart}
       />
     </div>
   )
