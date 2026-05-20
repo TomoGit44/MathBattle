@@ -38,10 +38,11 @@ import {
   MAX_ITEMS,
   ANIMATION_DURATION_MS,
   DEFAULT_SLOTS,
+  DEFAULT_INITIAL_SLOTS,
   DEFAULT_POOLS,
   DEFAULT_DECAY_FACTOR,
 } from './constants'
-import { drawForTurn, inferSlotOfCard } from './pool-draw'
+import { drawForTurn, drawInitialHand, inferSlotOfCard } from './pool-draw'
 import { applyCalculation } from './calc-engine'
 import { applyFunction } from './func-engine'
 import { createBullet, tickBullets, checkBulletCollisions, checkPlayerHits } from './physics'
@@ -77,6 +78,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   maxHandSize: MAX_HAND_SIZE,
   animationDurationMs: ANIMATION_DURATION_MS,
   slots: { ...DEFAULT_SLOTS },
+  initialSlots: { ...DEFAULT_INITIAL_SLOTS },
   pools: {
     operator: DEFAULT_POOLS.operator.map((e) => ({ ...e, card: { ...e.card } })),
     number: DEFAULT_POOLS.number.map((e) => ({ ...e, card: { ...e.card } })),
@@ -119,19 +121,77 @@ export const addPlayer = (
   }
 }
 
-// ゲーム開始 (2人揃った時に呼ぶ): 各プレイヤーの「ターン1で配られるカード」を事前抽選し
-// nextDraw にロックする。drawCounts も加算済み。
-export const startGame = (state: GameState): GameState => {
+export interface StartGameResult {
+  state: GameState
+  // 初期手札として配られたカードの newCardEvent (player → events)
+  newCardEvents: Record<string, NewCardEvent[]>
+  // 初期手札の HandLog (player → entries)
+  handLogEvents: Record<string, HandLogEntry[]>
+}
+
+// ゲーム開始 (2人揃った時に呼ぶ):
+// 1. 各プレイヤーに初期手札 (settings.initialSlots) を配り、drawCounts を加算
+// 2. 続いて「ターン1で配られる nextDraw」も事前抽選してロックする
+// 初期手札は同じプールから抽選され、drawCounts にも反映される (確率低下が効く)。
+export const startGame = (state: GameState): StartGameResult => {
   const newPlayers: Record<string, PlayerState> = { ...state.players }
+  const newCardEvents: Record<string, NewCardEvent[]> = {}
+  const handLogEvents: Record<string, HandLogEntry[]> = {}
+  const maxHandSize = state.settings.maxHandSize
+
   for (const [id, player] of Object.entries(newPlayers)) {
-    const { cards, drawCounts } = drawForTurn(state.settings, player.drawCounts)
+    // 1. 初期手札を抽選
+    const initial = drawInitialHand(state.settings, player.drawCounts)
+    // 手札上限を超える分は静かにスキップ
+    const room = Math.max(0, maxHandSize - player.hand.length)
+    const incoming = initial.cards.slice(0, room)
+    const handAfter = [...player.hand, ...incoming]
+
+    // HandLog: 初期手札の追加イベント (枠ごとに reason を振り分け)
+    // initial.perSlot を使うと枠ごとの内訳が分かるが、配列順序は drawForSlots の SLOT_ORDER 通り
+    const logs: HandLogEntry[] = []
+    let cursor = 0
+    for (const slot of ['operator', 'number', 'other'] as const) {
+      for (const card of initial.perSlot[slot]) {
+        if (cursor >= incoming.length) break
+        if (incoming[cursor] !== card) {
+          // 念のため安全策: incoming に乗ったかどうかで判定
+          cursor++
+          continue
+        }
+        logs.push({
+          kind: 'add',
+          cardLabel: handItemLabel(card),
+          reason: slot === 'operator' ? 'draw_op' : slot === 'number' ? 'draw_num' : 'draw_other',
+        })
+        cursor++
+      }
+    }
+    if (logs.length > 0) handLogEvents[id] = logs
+
+    // 玉飛行演出 (プール発信)
+    if (incoming.length > 0) {
+      const indices: number[] = []
+      for (let i = 0; i < incoming.length; i++) indices.push(player.hand.length + i)
+      newCardEvents[id] = [{ kind: 'pool', targetIndices: indices }]
+    }
+
+    // 2. ターン1用の nextDraw を抽選 (初期手札分が drawCounts に加算済みなので確率低下が効く)
+    const next = drawForTurn(state.settings, initial.drawCounts)
+
     newPlayers[id] = {
       ...player,
-      nextDraw: cards,
-      drawCounts,
+      hand: handAfter,
+      nextDraw: next.cards,
+      drawCounts: next.drawCounts,
     }
   }
-  return { ...state, phase: 'draw', turn: 1, players: newPlayers }
+
+  return {
+    state: { ...state, phase: 'draw', turn: 1, players: newPlayers },
+    newCardEvents,
+    handLogEvents,
+  }
 }
 
 // SlotKind → HandLog の理由コードに変換

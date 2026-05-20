@@ -176,6 +176,8 @@ export interface GameSettings {
   animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
   // 毎ターン補充の枠数 (0 以上の整数)
   slots: Record<SlotKind, number>
+  // 試合開始時に配られる初期手札の枠数 (毎ターン補充とは別。0 以上の整数)
+  initialSlots: Record<SlotKind, number>
   // 各枠の共通カードプール
   pools: Record<SlotKind, PoolEntry[]>
   // 永続スタック式の確率低下係数 (0 < decayFactor ≤ 1)。1 で減衰なし。

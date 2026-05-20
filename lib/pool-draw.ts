@@ -66,30 +66,52 @@ export const drawOneFromSlot = (
   return { card, key: cardKey(card) }
 }
 
-// 1ターン分の補充をまとめて引く。drawCounts は新しいオブジェクトを返す (immutable)。
+// 指定された枠数 (slots) 分のカードを抽選する共通ロジック。
+// drawCounts は新しいオブジェクトを返す (immutable)。
 // 枠数が 0 の slot はスキップされる。プール空の slot もスキップ。
-export const drawForTurn = (
+export const drawForSlots = (
   settings: GameSettings,
   drawCounts: Record<CardKey, number>,
+  slots: Record<SlotKind, number>,
   rng: () => number = Math.random
-): { cards: HandItem[]; drawCounts: Record<CardKey, number> } => {
+): { cards: HandItem[]; perSlot: Record<SlotKind, HandItem[]>; drawCounts: Record<CardKey, number> } => {
   const cards: HandItem[] = []
+  const perSlot: Record<SlotKind, HandItem[]> = { operator: [], number: [], other: [] }
   const nextCounts: Record<CardKey, number> = { ...drawCounts }
 
   for (const slot of SLOT_ORDER) {
-    const count = settings.slots[slot] ?? 0
+    const count = slots[slot] ?? 0
     if (count <= 0) continue
     const pool = settings.pools[slot] ?? []
     for (let i = 0; i < count; i++) {
       const drawn = drawOneFromSlot(pool, nextCounts, settings.decayFactor, rng)
       if (!drawn) break
       cards.push(drawn.card)
+      perSlot[slot].push(drawn.card)
       nextCounts[drawn.key] = (nextCounts[drawn.key] ?? 0) + 1
     }
   }
 
-  return { cards, drawCounts: nextCounts }
+  return { cards, perSlot, drawCounts: nextCounts }
 }
+
+// 1ターン分の補充 (settings.slots を使う)
+export const drawForTurn = (
+  settings: GameSettings,
+  drawCounts: Record<CardKey, number>,
+  rng: () => number = Math.random
+): { cards: HandItem[]; drawCounts: Record<CardKey, number> } => {
+  const r = drawForSlots(settings, drawCounts, settings.slots, rng)
+  return { cards: r.cards, drawCounts: r.drawCounts }
+}
+
+// 試合開始時の初期手札 (settings.initialSlots を使う)
+export const drawInitialHand = (
+  settings: GameSettings,
+  drawCounts: Record<CardKey, number>,
+  rng: () => number = Math.random
+): { cards: HandItem[]; perSlot: Record<SlotKind, HandItem[]>; drawCounts: Record<CardKey, number> } =>
+  drawForSlots(settings, drawCounts, settings.initialSlots, rng)
 
 // 1ターンに補充される総枚数 (枠の合計)
 export const totalSlotsPerTurn = (settings: GameSettings): number =>

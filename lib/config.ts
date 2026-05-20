@@ -30,6 +30,7 @@ import {
   MAX_HAND_SIZE,
   ANIMATION_DURATION_MS,
   DEFAULT_SLOTS,
+  DEFAULT_INITIAL_SLOTS,
   DEFAULT_POOLS,
   DEFAULT_DECAY_FACTOR,
 } from './constants'
@@ -53,6 +54,7 @@ export interface GameConfig {
   maxHandSize: number       // 手札の上限枚数
   animationDurationMs: number // ターン解決アニメーションの総再生時間 (ms)
   slots: Record<SlotKind, number>
+  initialSlots: Record<SlotKind, number>
   pools: Record<SlotKind, PoolEntry[]>
   decayFactor: number
 }
@@ -72,6 +74,7 @@ const DEFAULT_CONFIG: GameConfig = {
   maxHandSize: MAX_HAND_SIZE,
   animationDurationMs: ANIMATION_DURATION_MS,
   slots: { ...DEFAULT_SLOTS },
+  initialSlots: { ...DEFAULT_INITIAL_SLOTS },
   pools: {
     operator: DEFAULT_POOLS.operator.map((e) => ({ ...e, card: { ...e.card } })),
     number: DEFAULT_POOLS.number.map((e) => ({ ...e, card: { ...e.card } })),
@@ -234,6 +237,19 @@ const validate = (raw: unknown): GameConfig => {
     cfg.slots = nextSlots
   }
 
+  // initialSlots: 試合開始時の初期手札の枠数 (0 以上の整数)。
+  if (obj.initialSlots && typeof obj.initialSlots === 'object') {
+    const s = obj.initialSlots as Record<string, unknown>
+    const nextSlots: Record<SlotKind, number> = { ...cfg.initialSlots }
+    for (const k of SLOT_KIND_KEYS) {
+      const v = s[k]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && Number.isInteger(v)) {
+        nextSlots[k] = v
+      }
+    }
+    cfg.initialSlots = nextSlots
+  }
+
   // pools: 各枠のカードプール。未指定の枠はデフォルトのまま。空配列を渡すと「この枠は無効」となるが
   // 設定の意図的な抑止 (slots=0 と組み合わせ) を妨げないため許可しない (パース失敗扱い)。
   if (obj.pools && typeof obj.pools === 'object') {
@@ -279,6 +295,7 @@ export const toGameSettings = (cfg: GameConfig): GameSettings => {
     maxHandSize: cfg.maxHandSize,
     animationDurationMs: cfg.animationDurationMs,
     slots: { ...cfg.slots },
+    initialSlots: { ...cfg.initialSlots },
     pools: {
       operator: cfg.pools.operator.map((e) => ({ ...e, card: { ...e.card } })),
       number: cfg.pools.number.map((e) => ({ ...e, card: { ...e.card } })),

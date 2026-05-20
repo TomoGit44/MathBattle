@@ -85,6 +85,15 @@ export const DEFAULT_SLOTS: Record<SlotKind, number> = {
   other: 1,
 }
 
+// 試合開始時の初期手札。デフォルトは「補充なし = 0」だが、
+// 数字をいくらか持って開始する方が遊びやすいので 2 枠ずつ与える。
+// game-config.json の initialSlots で上書きできる。
+export const DEFAULT_INITIAL_SLOTS: Record<SlotKind, number> = {
+  operator: 2,
+  number: 3,
+  other: 2,
+}
+
 // 永続スタック式の確率低下係数。0.5 で配るたびに半減。
 export const DEFAULT_DECAY_FACTOR = 0.5
 

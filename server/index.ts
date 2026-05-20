@@ -268,18 +268,31 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
     return
   }
 
-  // 2人揃った → ゲーム開始 (turn=1 用の nextDraw を事前抽選)
-  room.gameState = startGame(room.gameState)
+  // 2人揃った → ゲーム開始 (初期手札を配り、turn=1 用の nextDraw を事前抽選)
+  const started = startGame(room.gameState)
+  room.gameState = started.state
 
-  // 初回ドロー (turn=1 の補充)
+  // 初期手札の演出・HandLog をバッファに登録
+  room.pendingNewCardEvents.clear()
+  for (const [pid, evts] of Object.entries(started.newCardEvents)) {
+    if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
+  }
+  for (const [pid, entries] of Object.entries(started.handLogEvents)) {
+    pushHandEvents(room, pid, entries)
+  }
+
+  // 初回ドロー (turn=1 の補充)。
+  // 初期手札の orb 演出と turn=1 の補充演出を同時に飛ばすため、
+  // newCardEvents をマージする (初期手札 [0..N-1] のあと turn 1 補充 [N..N+M-1])。
   const drawn = executeDraw(room.gameState)
   room.gameState = drawn.state
   if (drawn.pickups.length > 0) {
     room.pendingItemPickups.push(...drawn.pickups)
   }
-  room.pendingNewCardEvents.clear()
   for (const [pid, evts] of Object.entries(drawn.newCardEvents)) {
-    if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
+    if (evts.length === 0) continue
+    const existing = room.pendingNewCardEvents.get(pid) ?? []
+    room.pendingNewCardEvents.set(pid, [...existing, ...evts])
   }
   for (const [pid, entries] of Object.entries(drawn.handLogEvents)) {
     pushHandEvents(room, pid, entries)
