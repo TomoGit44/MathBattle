@@ -336,3 +336,16 @@
   40%  { transform: rotateY(180deg) scale(1.15); filter: brightness(1.9); }
   100% { transform: rotateY(360deg) scale(1);    filter: brightness(1); }
 }
+
+/* 捨てるモード時の脈動 (赤い shadow が点滅) */
+@keyframes mb-discard-pulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px var(--color-error), 0 0 6px rgba(248, 113, 113, 0.35); }
+  50%      { box-shadow: 0 0 0 2.5px var(--color-error), 0 0 16px rgba(248, 113, 113, 0.65); }
+}
+
+/* reduce motion: 脈動を止めて静的な赤枠だけ残す */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes mb-discard-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--color-error); }
+  }
+}

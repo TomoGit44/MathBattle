@@ -8,7 +8,7 @@ import { CalculationPreview } from './CalculationPreview'
 import { validateCalculation, calcErrorMessage } from '@/lib/calc-engine'
 import { FIELD_WIDTH, FIELD_HEIGHT } from '@/lib/constants'
 
-type ActionMode = null | 'calculate' | 'attack' | 'function' | 'move'
+type ActionMode = null | 'calculate' | 'attack' | 'function' | 'move' | 'discard'
 
 interface ActionPanelProps {
   hand: HandItem[]
@@ -257,7 +257,6 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={nonMoveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
-          onDiscard={discardCard}
         />
       )}
       {mode === 'move' && (
@@ -273,7 +272,6 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={nonMoveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
-          onDiscard={discardCard}
         />
       )}
       {(mode === 'calculate' || mode === 'attack') && (
@@ -288,7 +286,6 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={moveDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
-          onDiscard={discardCard}
         />
       )}
       {mode === 'function' && (
@@ -303,7 +300,17 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           disabledIndices={fnDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
-          onDiscard={discardCard}
+        />
+      )}
+      {mode === 'discard' && (
+        <HandDisplay
+          hand={hand}
+          selectedIndices={new Set()}
+          onToggle={(index) => discardCard(index)}
+          selectable={true}
+          pendingIndices={pendingCardIndices}
+          arrivingIndices={arrivingCardIndices}
+          discardMode
         />
       )}
 
@@ -386,6 +393,31 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
               スキップ
             </button>
           </div>
+          {/* 捨てるモード切替 (即時アクション・回数無制限)。プライマリより控えめな見た目で配置。 */}
+          <button
+            onClick={() => setMode('discard')}
+            disabled={hand.length === 0}
+            className="text-xs px-3 py-1.5 bg-bg-deep border border-error/40 text-error/90 rounded-md hover:bg-error/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-[var(--dur-fast)] touch-manipulation flex items-center gap-1.5"
+            aria-label="手札を捨てるモード"
+          >
+            <span aria-hidden>🗑️</span> 捨てる
+          </button>
+        </div>
+      )}
+
+      {/* 捨てるモード: 手札タップで即時に捨てる。「閉じる」で終了。 */}
+      {mode === 'discard' && (
+        <div className="flex flex-col gap-2 items-center">
+          <p className="text-sm text-error">
+            🗑️ 手札を<span className="font-bold">タップして捨てる</span>
+            <span className="text-text-faint text-xs ml-2">(回数無制限)</span>
+          </p>
+          <button
+            onClick={reset}
+            className="px-4 py-2 bg-bg-elev active:bg-bg-mid hover:bg-bg-mid border border-line text-text-mid rounded-lg text-sm touch-manipulation transition-colors duration-[var(--dur-fast)]"
+          >
+            閉じる
+          </button>
         </div>
       )}
 

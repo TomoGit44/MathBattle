@@ -12,8 +12,8 @@ interface HandDisplayProps {
   pendingIndices?: Set<number>
   /** 玉が着地し、入場アニメーションを再生中のインデックス */
   arrivingIndices?: Set<number>
-  /** カードを「捨てる」即時アクション。指定されていると各カードの右上に🗑️ボタンが出る */
-  onDiscard?: (index: number) => void
+  /** 捨てるモード: 全カードに赤い枠と脈動を出し、タップ = 捨てる */
+  discardMode?: boolean
 }
 
 const dirArrow = (d: 'up' | 'down' | 'left' | 'right'): string =>
@@ -59,7 +59,7 @@ export const HandDisplay = ({
   disabledIndices,
   pendingIndices,
   arrivingIndices,
-  onDiscard,
+  discardMode,
 }: HandDisplayProps) => {
   return (
     <div className="flex gap-1.5 sm:gap-2 justify-center flex-wrap">
@@ -81,6 +81,14 @@ export const HandDisplay = ({
             }
           : {}
 
+        // 捨てるモード時の見た目 (赤の脈動枠)。selected/prime/∞ より優先しないため box-shadow に重ねる。
+        const discardOverlayStyle: React.CSSProperties | undefined = discardMode && !isPending
+          ? {
+              animation: 'mb-discard-pulse 0.9s var(--ease-in-out) infinite',
+              willChange: 'box-shadow, border-color',
+            }
+          : undefined
+
         return (
           <div
             key={index}
@@ -94,35 +102,21 @@ export const HandDisplay = ({
                 isInfinity
                   ? 'border-warn !text-warn !bg-bg-deep [text-shadow:0_0_10px_var(--color-warn),0_0_22px_var(--color-warn)]'
                   : ''
-              }`}
+              } ${discardMode && !isPending ? '!border-error/80' : ''}`}
               style={
-                isPrime
+                discardOverlayStyle ??
+                (isPrime
                   ? { boxShadow: 'var(--shadow-prime)' }
                   : isInfinity
                   ? { boxShadow: '0 0 14px 2px var(--color-warn), inset 0 0 10px rgba(0,0,0,0.6)' }
-                  : undefined
+                  : undefined)
               }
               onClick={() => !isDisabled && !isPending && onToggle(index)}
               disabled={!!isDisabled || isPending}
+              aria-label={discardMode ? `${getLabel(item)} を捨てる` : undefined}
             >
               {getLabel(item)}
             </button>
-            {/* 捨てる即時アクション (回数無制限)。
-                onDiscard が渡され、かつ飛行演出中でない場合だけ右上に小ボタンを表示する。 */}
-            {onDiscard && !isPending && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDiscard(index)
-                }}
-                aria-label={`${getLabel(item)} を捨てる`}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-bg-deep border border-error/50 text-error text-[10px] flex items-center justify-center shadow hover:bg-error hover:text-bg-deep transition-colors duration-[var(--dur-fast)]"
-                style={{ lineHeight: 1 }}
-              >
-                ×
-              </button>
-            )}
           </div>
         )
       })}
