@@ -77,11 +77,13 @@ export const buildFunctionExpression = (
  * - 数値/変数と演算子の交互パターン
  * - xが1つ以上
  * - cardIndicesが手札範囲内・重複なし
+ * - functionCardIndex (省略可) は関数カードを指していること
  */
 export const validateFunctionExpression = (
   hand: HandItem[],
   cardIndices: number[],
-  xPositions: number[]
+  xPositions: number[],
+  functionCardIndex?: number
 ): { valid: boolean; error?: string } => {
   const totalLength = cardIndices.length + xPositions.length
 
@@ -93,6 +95,24 @@ export const validateFunctionExpression = (
   }
   if (xPositions.length === 0) {
     return { valid: false, error: 'xが1つ以上必要です' }
+  }
+
+  // 関数カードのバリデーション (指定があれば)
+  if (functionCardIndex !== undefined) {
+    if (
+      !Number.isInteger(functionCardIndex) ||
+      functionCardIndex < 0 ||
+      functionCardIndex >= hand.length
+    ) {
+      return { valid: false, error: '関数カードのインデックスが不正です' }
+    }
+    const fc = hand[functionCardIndex]
+    if (fc.type !== 'function') {
+      return { valid: false, error: '指定された手札は関数カードではありません' }
+    }
+    if (cardIndices.includes(functionCardIndex)) {
+      return { valid: false, error: '関数カードを式の構成カードに含めることはできません' }
+    }
   }
 
   // cardIndices の重複・範囲チェック
@@ -110,6 +130,12 @@ export const validateFunctionExpression = (
       !Number.isFinite(item.value)
     ) {
       return { valid: false, error: '無限 (∞) は関数に使えません' }
+    }
+    if (item.type === 'function') {
+      return { valid: false, error: '関数カードは式の構成カードに使えません (発動用です)' }
+    }
+    if (item.type === 'move') {
+      return { valid: false, error: '移動カードは関数式に使えません' }
     }
     usedSet.add(idx)
   }
@@ -231,26 +257,22 @@ export const buildDisplayString = (expression: FunctionExpressionItem[]): string
 
 /**
  * 関数アクションを適用する。
- * 成功時: 手札からカードを消費し、FunctionCurve を返す。
+ * 関数カード 1 枚 (functionCardIndex) と式構成カード (cardIndices) を消費し、FunctionCurve を返す。
+ * MAX_FUNCTION_USES などの回数上限は廃止 (関数カードが手札にある限り使える)。
  * 失敗時: null を返す。
  */
 export const applyFunction = (
   hand: HandItem[],
+  functionCardIndex: number,
   cardIndices: number[],
   xPositions: number[],
-  owner: string,
-  usesRemaining: number
+  owner: string
 ): { curve: FunctionCurve; newHand: HandItem[] } | null => {
-  if (usesRemaining <= 0) return null
-
-  const validation = validateFunctionExpression(hand, cardIndices, xPositions)
+  const validation = validateFunctionExpression(hand, cardIndices, xPositions, functionCardIndex)
   if (!validation.valid) return null
 
   const expression = buildFunctionExpression(hand, cardIndices, xPositions)
   if (expression.length === 0) return null
-
-  // 式が有効か簡易チェック（x=0で評価してみる）
-  // ただし0除算の式でもx=0以外では有効かもしれないので、ここではスキップ
 
   const displayString = buildDisplayString(expression)
 
@@ -261,10 +283,10 @@ export const applyFunction = (
     displayString,
   }
 
-  // 手札からカードを消費（インデックスが大きい方から削除）
-  const sortedIndices = [...cardIndices].sort((a, b) => b - a)
+  // 手札から関数カードと式構成カードを消費 (大きい順に削除)
+  const allIndices = [...cardIndices, functionCardIndex].sort((a, b) => b - a)
   const newHand = [...hand]
-  for (const idx of sortedIndices) {
+  for (const idx of allIndices) {
     newHand.splice(idx, 1)
   }
 

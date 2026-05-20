@@ -25,7 +25,6 @@ import {
   P1_START_X,
   P2_START_X,
   START_Y,
-  MAX_FUNCTION_USES,
   FUNCTION_DAMAGE,
   BULLET_SIZE,
   PLAYER_SIZE,
@@ -111,7 +110,6 @@ export const addPlayer = (
     position: { x: isFirst ? P1_START_X : P2_START_X, y: START_Y },
     facing: isFirst ? 'right' : 'left',
     hand: [],
-    functionUsesRemaining: MAX_FUNCTION_USES,
     drawCounts: {},
     nextDraw: [],
   }
@@ -315,7 +313,7 @@ const describeAction = (action: Action, player: PlayerState): string => {
       return `${player.name} が ${val} で攻撃`
     }
     case 'function':
-      return `${player.name} が関数を定義`
+      return `${player.name} が関数カードを使用`
     case 'discard': {
       const item = player.hand[action.handIndex]
       const lab = item ? handItemLabel(item) : '?'
@@ -375,6 +373,68 @@ export const applyImmediateMove = (
     },
     pickups: pickupRes.pickups,
     handLog,
+  }
+}
+
+// 関数カードを使った関数アクションの即時適用。
+// functionCardIndex の関数カードと cardIndices の式構成カードを消費し、
+// FunctionCurve をフィールドに追加する。
+// 戻り値: 成功時は新しい state + 同ターン中に発生した曲線打ち消しイベント + HandLog
+//          失敗時は null。
+export const applyFunctionImmediate = (
+  state: GameState,
+  playerId: string,
+  functionCardIndex: number,
+  cardIndices: number[],
+  xPositions: number[]
+): { state: GameState; handLog: HandLogEntry[]; curveEvents: string[] } | null => {
+  const player = state.players[playerId]
+  if (!player) return null
+
+  const handBefore = player.hand
+  const result = applyFunction(handBefore, functionCardIndex, cardIndices, xPositions, playerId)
+  if (!result) return null
+
+  // HandLog: 関数カード本体 + 式構成カードの消費
+  const handLog: HandLogEntry[] = []
+  const fc = handBefore[functionCardIndex]
+  if (fc) {
+    handLog.push({ kind: 'remove', cardLabel: handItemLabel(fc), reason: 'function' })
+  }
+  for (const idx of cardIndices) {
+    const item = handBefore[idx]
+    if (!item) continue
+    handLog.push({ kind: 'remove', cardLabel: handItemLabel(item), reason: 'function' })
+  }
+
+  // 既存の曲線と打ち消し判定: 同じ式が既にある (相手所有) なら両者消滅
+  const existingCurves = [...state.curves]
+  let nextCurves = [...existingCurves, result.curve]
+  const curveEvents: string[] = []
+  const newKey = expressionKey(result.curve.expression)
+  const matchIdx = existingCurves.findIndex(
+    (c) => c.owner !== playerId && expressionKey(c.expression) === newKey
+  )
+  if (matchIdx >= 0) {
+    const matched = existingCurves[matchIdx]
+    nextCurves = existingCurves.filter((c) => c.id !== matched.id)
+    // 新しい曲線は追加せず、両者を打ち消した状態
+    const nameA = player.name
+    const nameB = state.players[matched.owner]?.name ?? matched.owner
+    curveEvents.push(`🎯 ${nameA} と ${nameB} の ${result.curve.displayString} が打ち消し合い`)
+  }
+
+  return {
+    state: {
+      ...state,
+      players: {
+        ...state.players,
+        [playerId]: { ...player, hand: result.newHand },
+      },
+      curves: nextCurves,
+    },
+    handLog,
+    curveEvents,
   }
 }
 
@@ -449,9 +509,10 @@ export const resolveActions = (
 
     switch (action.type) {
       case 'use_move_card':
-      case 'discard': {
-        // 即時適用済み (server 側で applyImmediateMove / applyDiscard を呼んでいる)。
-        // ここでは何もしない (handLog も既に bufferedHandEvents として server 側にある)。
+      case 'discard':
+      case 'function': {
+        // 即時適用済み (server 側で applyImmediateMove / applyDiscard / applyFunctionImmediate を呼んでいる)。
+        // ここでは何もしない (handLog も既に pendingHandEvents として server 側にある)。
         break
       }
       case 'skip': {
@@ -459,7 +520,6 @@ export const resolveActions = (
       }
       case 'calculate': {
         // calculate は即時実行 (server 側) なので、resolveActions で再実行はしない。
-        // server で実行できなかったケース (= 解決時にもう一度送られた)は安全側で何もしない。
         break
       }
       case 'attack': {
@@ -477,64 +537,11 @@ export const resolveActions = (
         pushLog(id, { kind: 'remove', cardLabel: handItemLabel(item), reason: 'attack' })
         break
       }
-      case 'function': {
-        const handBefore = player.hand
-        const result = applyFunction(
-          handBefore,
-          action.cardIndices,
-          action.xPositions,
-          id,
-          player.functionUsesRemaining
-        )
-        if (result) {
-          curves.push(result.curve)
-          // 消費された各カードの remove ログ
-          for (const idx of action.cardIndices) {
-            const item = handBefore[idx]
-            if (!item) continue
-            pushLog(id, { kind: 'remove', cardLabel: handItemLabel(item), reason: 'function' })
-          }
-          players[id] = {
-            ...player,
-            hand: result.newHand,
-            functionUsesRemaining: player.functionUsesRemaining - 1,
-          }
-          turnResult.actions[id].description += ` (${result.curve.displayString})`
-        } else {
-          turnResult.actions[id].description += ' (失敗)'
-        }
-        break
-      }
     }
   }
 
-  // 関数カーブの打ち消し処理: このターン新たに定義された曲線が、既存・同ターン内の
-  // 相手の曲線と式が一致する場合、両者をフィールドから取り除く (1対1ペアリング)。
-  {
-    const preexistingIds = new Set(state.curves.map((c) => c.id))
-    const newCurves = curves.filter((c) => !preexistingIds.has(c.id))
-    const removeIds = new Set<string>()
-    for (const newCurve of newCurves) {
-      if (removeIds.has(newCurve.id)) continue
-      const match = curves.find(
-        (c) =>
-          c.id !== newCurve.id &&
-          c.owner !== newCurve.owner &&
-          !removeIds.has(c.id) &&
-          expressionKey(c.expression) === expressionKey(newCurve.expression)
-      )
-      if (match) {
-        removeIds.add(newCurve.id)
-        removeIds.add(match.id)
-        const nameA = players[newCurve.owner]?.name ?? newCurve.owner
-        const nameB = players[match.owner]?.name ?? match.owner
-        turnResult.curveEvents!.push(
-          `🎯 ${nameA} と ${nameB} の ${newCurve.displayString} が打ち消し合い`
-        )
-      }
-    }
-    if (removeIds.size > 0) curves = curves.filter((c) => !removeIds.has(c.id))
-  }
+  // 注: 関数カーブの打ち消しは applyFunctionImmediate で発動時に行う (即時化されたため)。
+  // resolveActions では追加の打ち消し判定は不要。
 
   // 弾の初期スナップショット (アクション解決直後)
   bulletSnapshots.push({ bullets: bullets.map((b) => ({ ...b, position: { ...b.position }, velocity: { ...b.velocity } })) })
@@ -689,7 +696,6 @@ export const sanitizeStateForPlayer = (
         position: opts?.opponentVisiblePosition ?? opponentEntry[1].position,
         facing: opponentEntry[1].facing,
         handCount: opponentEntry[1].hand.length,
-        functionUsesRemaining: opponentEntry[1].functionUsesRemaining,
         nextDraw: opponentEntry[1].nextDraw,
       }
     : {
@@ -699,7 +705,6 @@ export const sanitizeStateForPlayer = (
         position: { x: 0, y: 0 },
         facing: 'left',
         handCount: 0,
-        functionUsesRemaining: MAX_FUNCTION_USES,
         nextDraw: [],
       }
 

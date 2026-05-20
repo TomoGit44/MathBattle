@@ -25,6 +25,7 @@ const getItemLabel = (entry: FunctionSequenceEntry, hand: HandItem[]): string =>
     case 'operator': return item.operator
     case 'token': return Number.isFinite(item.value) ? String(item.value) : '∞'
     case 'move': return '?'
+    case 'function': return 'ƒ'
   }
 }
 
@@ -45,6 +46,8 @@ const getItemStyle = (entry: FunctionSequenceEntry, hand: HandItem[]): string =>
       return `${base} border-success bg-op-add-bg text-op-add`
     case 'move':
       return `${base} border-line bg-bg-elev text-text-mute`
+    case 'function':
+      return `${base} border-op-add-border bg-op-add-bg text-op-add italic`
   }
 }
 

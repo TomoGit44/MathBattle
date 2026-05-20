@@ -184,7 +184,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
           hand={me.hand}
           onSubmit={sendAction}
           disabled={phase !== 'action'}
-          functionUsesRemaining={me.functionUsesRemaining}
           settings={settings}
           onMovePreview={handleMovePreview}
           pendingCardIndices={pendingCardIndices}
@@ -199,7 +198,6 @@ export const GameScreen = ({ gameState, sendAction }: GameScreenProps) => {
             手札: <span className={me.hand.length >= settings.maxHandSize ? 'text-error font-bold' : ''}>{me.hand.length}/{settings.maxHandSize}</span>枚
           </span>
           <NextDrawPreview cards={me.nextDraw} isMe anchorId={me.id} />
-          <span>関数残: {me.functionUsesRemaining}回</span>
         </div>
         <button
           onClick={() => setLogOpen(true)}

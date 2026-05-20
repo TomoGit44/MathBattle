@@ -11,6 +11,7 @@ import {
   sanitizeStateForPlayer,
   applyImmediateMove,
   applyDiscard,
+  applyFunctionImmediate,
 } from '../lib/game-logic'
 import { checkGameOver } from '../lib/damage'
 import { tryApplyCalculation, calcErrorMessage } from '../lib/calc-engine'
@@ -394,6 +395,58 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
       send(pc.ws, {
         type: 'gameState',
         state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
+      })
+    }
+    return
+  }
+
+  // 関数カードを使った関数定義は即時処理 (関数カード 1 枚を消費)
+  if (action.type === 'function') {
+    if (
+      !Number.isInteger(action.functionCardIndex) ||
+      !Array.isArray(action.cardIndices) ||
+      !Array.isArray(action.xPositions)
+    ) {
+      send(ws, { type: 'error', message: '関数リクエストが不正です' })
+      return
+    }
+    const next = applyFunctionImmediate(
+      room.gameState,
+      connId,
+      action.functionCardIndex,
+      action.cardIndices,
+      action.xPositions
+    )
+    if (!next) {
+      send(ws, { type: 'error', message: '関数式が不正です (式の長さ・x の有無を確認してください)' })
+      return
+    }
+    room.gameState = next.state
+    pushHandEvents(room, connId, next.handLog)
+
+    // 打ち消しイベントを bulletEvents 風に両者へ配信するため、専用 TurnResult を作る
+    let extraResult: TurnResult | undefined
+    if (next.curveEvents.length > 0) {
+      extraResult = {
+        actions: {},
+        damages: {},
+        bulletEvents: [],
+        bulletSnapshots: [],
+        playerPositions: {},
+        curveDamages: {},
+        curveEvents: next.curveEvents,
+      }
+    }
+
+    send(ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, connId, extraResult, sanitizeOptsFor(room, connId)),
+    })
+    for (const [otherId, pc] of room.players) {
+      if (otherId === connId) continue
+      send(pc.ws, {
+        type: 'gameState',
+        state: sanitizeStateForPlayer(room.gameState, otherId, extraResult, sanitizeOptsFor(room, otherId)),
       })
     }
     return

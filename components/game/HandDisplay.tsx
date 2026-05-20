@@ -25,6 +25,7 @@ const getLabel = (item: HandItem): string => {
     case 'operator': return item.operator
     case 'token': return Number.isFinite(item.value) ? String(item.value) : item.value > 0 ? '∞' : '-∞'
     case 'move': return dirArrow(item.direction)
+    case 'function': return 'ƒ'
   }
 }
 
@@ -48,6 +49,9 @@ const getStyle = (item: HandItem, selected: boolean): string => {
       return `${base} border-success bg-op-add-bg text-op-add hover:border-op-add hover:shadow-[0_6px_14px_-6px_rgba(74,222,128,0.5)]`
     case 'move':
       return `${base} border-axis-origin/50 bg-bg-elev text-axis-origin text-2xl hover:border-axis-origin hover:shadow-[0_6px_14px_-6px_rgba(103,232,249,0.5)]`
+    case 'function':
+      // 関数カード: 緑系で italic にして「関数記号」感を出す
+      return `${base} border-op-add-border bg-op-add-bg text-op-add text-xl italic hover:border-op-add hover:shadow-[0_6px_14px_-6px_rgba(74,222,128,0.55)]`
   }
 }
 

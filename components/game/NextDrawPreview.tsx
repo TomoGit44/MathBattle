@@ -20,6 +20,7 @@ interface NextDrawPreviewProps {
 const colorForItem = (item: HandItem): string => {
   if (item.type === 'operator') return 'text-op-mul border-op-mul-border bg-op-mul-bg'
   if (item.type === 'move') return 'text-axis-origin border-axis-origin/50 bg-bg-elev'
+  if (item.type === 'function') return 'text-op-add border-op-add-border bg-op-add-bg italic'
   // number / token
   const isInf = !Number.isFinite(item.value)
   if (isInf) return 'text-warn border-warn bg-bg-deep'

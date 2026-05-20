@@ -4,7 +4,9 @@ export type NumberCard = { type: 'number'; value: number }
 export type OperatorCard = { type: 'operator'; operator: '+' | '-' | '×' | '÷' }
 // 移動カード: 使用すると即時にプレイヤーが指定方向に動く。1枚ごとに方向が固定。
 export type MoveCard = { type: 'move'; direction: Direction }
-export type Card = NumberCard | OperatorCard | MoveCard
+// 関数カード: 1枚消費して関数アクションを発動する。手札の数値/演算子と組み合わせて f(x) を定義する。
+export type FunctionCard = { type: 'function' }
+export type Card = NumberCard | OperatorCard | MoveCard | FunctionCard
 
 // 計算結果として手札に残る数値トークン
 export type NumberToken = { type: 'token'; value: number }
@@ -123,13 +125,21 @@ export interface HandLogEntry {
 }
 
 // --- アクション ---
-// use_move_card / calculate / discard は即時適用 (回数制限なし)。
-// attack/function/skip は「メインアクション」で、両プレイヤーが submit するとターンが解決される。
+// use_move_card / calculate / discard / function は即時適用 (回数制限なし、ただし関数カード1枚を消費)。
+// attack/skip は「メインアクション」で、両プレイヤーが submit するとターンが解決される。
 export type Action =
   | { type: 'use_move_card'; handIndex: number }
   | { type: 'calculate'; cardIndices: number[] }
   | { type: 'attack'; handIndex: number }
-  | { type: 'function'; cardIndices: number[]; xPositions: number[] }
+  | {
+      type: 'function'
+      // 消費する関数カードの手札インデックス (式には含まれない)
+      functionCardIndex: number
+      // 式を構成する手札カード (数値/演算子) のインデックス。順序は xPositions と合わせて式を組み立てる
+      cardIndices: number[]
+      // 式の中で x が入る位置 (0-indexed、cardIndices + xPositions の合計長基準)
+      xPositions: number[]
+    }
   | { type: 'discard'; handIndex: number }
   | { type: 'skip' }       // メインアクションをスキップ
 
@@ -141,7 +151,6 @@ export interface PlayerState {
   position: Position
   facing: 'left' | 'right'
   hand: HandItem[]
-  functionUsesRemaining: number
   // 抽選確率低下用: これまで配られた累積カウント (cardKey → 回数)
   drawCounts: Record<CardKey, number>
   // 次ターン補充が確定済みの (両者公開) カード列
@@ -203,7 +212,6 @@ export interface SanitizedPlayerState {
   position: Position
   facing: 'left' | 'right'
   handCount: number
-  functionUsesRemaining: number
   // 次ターン補充プレビューは両者公開
   nextDraw: HandItem[]
 }
@@ -279,7 +287,8 @@ export const cardKey = (c: Card): CardKey => {
     return `n:${c.value}`
   }
   if (c.type === 'operator') return `o:${c.operator}`
-  return `m:${c.direction}`
+  if (c.type === 'move') return `m:${c.direction}`
+  return 'f:fn'
 }
 
 const dirArrow = (d: Direction): string =>
@@ -296,5 +305,7 @@ export const handItemLabel = (item: HandItem): string => {
       return item.operator
     case 'move':
       return dirArrow(item.direction)
+    case 'function':
+      return 'ƒ'
   }
 }

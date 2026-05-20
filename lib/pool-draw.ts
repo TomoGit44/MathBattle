@@ -119,8 +119,9 @@ export const totalSlotsPerTurn = (settings: GameSettings): number =>
 
 // HandLog 用: そのカードがどの slot から来たかを推定する。
 // (補充ロジック内で確実な slot 情報を保持できれば不要だが、汎用化のために提供)
+// move / function は other 枠扱い。
 export const inferSlotOfCard = (card: Card): SlotKind => {
   if (card.type === 'operator') return 'operator'
   if (card.type === 'number') return 'number'
-  return 'other'
+  return 'other'  // move | function
 }

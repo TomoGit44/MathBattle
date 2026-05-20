@@ -14,7 +14,6 @@ interface ActionPanelProps {
   hand: HandItem[]
   onSubmit: (action: Action) => void
   disabled: boolean
-  functionUsesRemaining: number
   settings: GameSettings
   onMovePreview?: (handIndex: number | null) => void
   /** 玉が飛行中のカードインデックス (HandDisplay に透過) */
@@ -29,12 +28,14 @@ const dirArrow = (d: Direction): string =>
 const dirLabel = (d: Direction): string =>
   ({ up: '上', down: '下', left: '左', right: '右' }[d])
 
-export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, settings, onMovePreview, pendingCardIndices, arrivingCardIndices }: ActionPanelProps) => {
+export const ActionPanel = ({ hand, onSubmit, disabled, settings, onMovePreview, pendingCardIndices, arrivingCardIndices }: ActionPanelProps) => {
   const [mode, setMode] = useState<ActionMode>(null)
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set())
   const [submitted, setSubmitted] = useState(false)
   const [functionSequence, setFunctionSequence] = useState<FunctionSequenceEntry[]>([])
   const [movePreviewIndex, setMovePreviewIndex] = useState<number | null>(null)
+  // 関数モードで消費する関数カードの手札インデックス (mode='function' に入った時にセット)
+  const [functionCardIndex, setFunctionCardIndex] = useState<number | null>(null)
 
   // 親に preview 状態を通知 (フィールド上のゴースト表示用)
   useEffect(() => {
@@ -46,6 +47,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
     setSelectedIndices(new Set())
     setFunctionSequence([])
     setMovePreviewIndex(null)
+    setFunctionCardIndex(null)
   }, [])
 
   const toggleCard = useCallback((index: number) => {
@@ -93,6 +95,13 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
     setMovePreviewIndex(index)
   }, [])
 
+  // 関数カードを手札からタップ → 関数定義モードに入る (即時アクション)
+  const startFunctionMode = useCallback((index: number) => {
+    setMode('function')
+    setFunctionCardIndex(index)
+    setFunctionSequence([])
+  }, [])
+
   const confirmMoveCard = useCallback(() => {
     if (movePreviewIndex == null) return
     const card = hand[movePreviewIndex]
@@ -136,8 +145,10 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
       ? validateCalculation(hand, Array.from(selectedIndices))
       : null
 
-  // 関数式の送信: functionSequenceからcardIndicesとxPositionsに変換
+  // 関数式の送信 (即時アクション): functionSequence から cardIndices と xPositions に変換
+  // 即時アクションなので submitted フラグは立てない (ターン継続)
   const submitFunction = useCallback(() => {
+    if (functionCardIndex == null) return
     const cardIndices: number[] = []
     const xPositions: number[] = []
 
@@ -150,8 +161,9 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
       }
     }
 
-    submit({ type: 'function', cardIndices, xPositions })
-  }, [functionSequence, submit])
+    onSubmit({ type: 'function', functionCardIndex, cardIndices, xPositions })
+    reset()
+  }, [functionSequence, functionCardIndex, onSubmit, reset])
 
   // 関数式バリデーション。null = OK、それ以外は表示用のエラーメッセージ。
   // 入力途中 (空・短すぎ) はメッセージを出さず無効化のみ。x 抜け等は具体的に案内する。
@@ -193,12 +205,14 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
   //   - すでに使用済み
   //   - 次に置けるトークン種別と合わない (operator スロットに数値、value スロットに演算子)
   //   - 無限 (∞) は関数では使えない (サーバーも拒否する)
-  //   - 移動カードも関数では使えない
+  //   - 移動カードと関数カードは式構成に使えない
+  //   - 関数発動に使う関数カード自身も式に含められない
   const fnDisabledIndices = useMemo(() => {
     const set = new Set(usedHandIndices)
+    if (functionCardIndex != null) set.add(functionCardIndex)
     hand.forEach((item, idx) => {
       if (set.has(idx)) return
-      if (item.type === 'move') {
+      if (item.type === 'move' || item.type === 'function') {
         set.add(idx)
         return
       }
@@ -212,22 +226,31 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
       if (nextSlotKind === 'operator' && isValue) set.add(idx)
     })
     return set
-  }, [hand, usedHandIndices, nextSlotKind])
+  }, [hand, usedHandIndices, nextSlotKind, functionCardIndex])
 
-  // 移動カード以外を無効化したインデックス集合 (null モードで使用)
-  const nonMoveDisabledIndices = useMemo(() => {
+  // null モードで「タップで起動できる」即時アクション系カード (移動 / 関数) 以外を無効化
+  const triggerDisabledIndices = useMemo(() => {
     const set = new Set<number>()
     hand.forEach((item, idx) => {
-      if (item.type !== 'move') set.add(idx)
+      if (item.type !== 'move' && item.type !== 'function') set.add(idx)
     })
     return set
   }, [hand])
 
-  // 移動カードを無効化したインデックス集合 (calculate/attack モードで使用)
+  // calculate / attack モードで使えないカード (移動・関数) を無効化
   const moveDisabledIndices = useMemo(() => {
     const set = new Set<number>()
     hand.forEach((item, idx) => {
-      if (item.type === 'move') set.add(idx)
+      if (item.type === 'move' || item.type === 'function') set.add(idx)
+    })
+    return set
+  }, [hand])
+
+  // move モード時: 移動カード以外を無効化
+  const nonMoveDisabledIndices = useMemo(() => {
+    const set = new Set<number>()
+    hand.forEach((item, idx) => {
+      if (item.type !== 'move') set.add(idx)
     })
     return set
   }, [hand])
@@ -250,11 +273,14 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           hand={hand}
           selectedIndices={new Set()}
           onToggle={(index) => {
-            if (nonMoveDisabledIndices.has(index)) return
-            startMovePreview(index)
+            if (triggerDisabledIndices.has(index)) return
+            const card = hand[index]
+            if (!card) return
+            if (card.type === 'move') startMovePreview(index)
+            else if (card.type === 'function') startFunctionMode(index)
           }}
           selectable={true}
-          disabledIndices={nonMoveDisabledIndices}
+          disabledIndices={triggerDisabledIndices}
           pendingIndices={pendingCardIndices}
           arrivingIndices={arrivingCardIndices}
         />
@@ -264,7 +290,8 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
           hand={hand}
           selectedIndices={movePreviewIndex != null ? new Set([movePreviewIndex]) : new Set()}
           onToggle={(index) => {
-            if (nonMoveDisabledIndices.has(index)) return
+            const card = hand[index]
+            if (!card || card.type !== 'move') return
             // 別の移動カードに切替
             setMovePreviewIndex(index)
           }}
@@ -362,11 +389,13 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
         )
       })()}
 
-      {/* メインアクション選択。移動カードは手札からクリックでプレビュー → 確定で実行 (回数制限なし)。 */}
+      {/* メインアクション選択。移動・関数カードは手札タップで即時起動 (回数制限なし)。 */}
       {mode === null && (
         <div className="flex flex-col items-center gap-2">
-          <div className="text-xs text-text-faint">移動は手札の矢印カードをクリック (プレビュー → 確定)</div>
-          <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3 sm:justify-center">
+          <div className="text-xs text-text-faint">
+            手札の <span className="text-axis-origin">矢印</span> = 移動 / <span className="text-op-add">ƒ</span> = 関数 (タップで起動)
+          </div>
+          <div className="grid grid-cols-3 sm:flex gap-2 sm:gap-3 sm:justify-center">
             <button
               onClick={() => setMode('calculate')}
               className="px-4 py-3 sm:py-2 bg-op-mul-bg active:bg-op-mul-bg/70 hover:bg-op-mul-bg/70 border border-op-mul-border/50 text-op-mul rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
@@ -378,13 +407,6 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
               className="px-4 py-3 sm:py-2 bg-p2-bg active:bg-p2-bg/70 hover:bg-p2-bg/70 border border-p2-border/50 text-p2 rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
             >
               攻撃
-            </button>
-            <button
-              onClick={() => setMode('function')}
-              disabled={functionUsesRemaining <= 0}
-              className="px-4 py-3 sm:py-2 bg-op-add-bg active:bg-op-add-bg/70 hover:bg-op-add-bg/70 border border-op-add-border/50 text-op-add disabled:bg-bg-elev disabled:text-text-mute disabled:border-line rounded-lg font-bold transition-colors duration-[var(--dur-fast)] touch-manipulation"
-            >
-              関数 ({functionUsesRemaining})
             </button>
             <button
               onClick={() => submit({ type: 'skip' })}
@@ -516,7 +538,7 @@ export const ActionPanel = ({ hand, onSubmit, disabled, functionUsesRemaining, s
             </p>
           )}
           <p className="text-xs text-text-faint text-center">
-            手札のカードとxを交互に配置して関数を定義 (例: x×x+3)
+            手札のカードとxを交互に配置して関数を定義 (例: x×x+3)。関数カード 1 枚 + 式構成カードが消費されます。
           </p>
         </div>
       )}

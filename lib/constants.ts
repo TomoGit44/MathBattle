@@ -121,5 +121,7 @@ export const DEFAULT_POOLS: Record<SlotKind, PoolEntry[]> = {
     { card: { type: 'move', direction: 'down' }, baseWeight: 1 },
     { card: { type: 'move', direction: 'left' }, baseWeight: 1 },
     { card: { type: 'move', direction: 'right' }, baseWeight: 1 },
+    // 関数カード: 強力なので移動カードよりかなり低い重み (= 希少カード)
+    { card: { type: 'function' }, baseWeight: 0.3 },
   ],
 }

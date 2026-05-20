@@ -130,6 +130,9 @@ const parseCard = (raw: unknown): Card | null => {
     }
     return null
   }
+  if (r.type === 'function') {
+    return { type: 'function' }
+  }
   return null
 }
 
