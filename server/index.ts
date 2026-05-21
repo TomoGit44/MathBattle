@@ -40,6 +40,8 @@ interface Room {
   actionTimer: ReturnType<typeof setTimeout> | null
   // ターン開始時の各プレイヤー位置 (action フェーズ中の即時移動を相手に対して秘匿するため)
   turnStartPositions: Map<string, Position>
+  // ターン開始時に存在した曲線の ID 集合 (action フェーズ中に相手が新規定義した曲線を秘匿するため)
+  turnStartCurveIds: Set<string>
   // 即時アクション (移動・ドロー直後) で発生したアイテム拾得を蓄積し、次の TurnResult で公開する
   pendingItemPickups: ItemPickup[]
   // 直近のドロー/拾得で「新規カードを玉飛行で表示する」イベント。1度送ったらクリア。
@@ -60,6 +62,7 @@ const createRoom = (roomId: string): Room => ({
   players: new Map(),
   actionTimer: null,
   turnStartPositions: new Map(),
+  turnStartCurveIds: new Set(),
   pendingItemPickups: [],
   pendingNewCardEvents: new Map(),
   pendingHandEvents: new Map(),
@@ -70,10 +73,20 @@ const captureTurnStartPositions = (room: Room) => {
   for (const [id, p] of Object.entries(room.gameState.players)) {
     room.turnStartPositions.set(id, { ...p.position })
   }
+  // ターン開始時点の曲線 ID をスナップショット。action フェーズ中に追加された曲線は
+  // この集合に含まれないため、所有者でない viewer に対して秘匿される。
+  room.turnStartCurveIds.clear()
+  for (const c of room.gameState.curves) {
+    room.turnStartCurveIds.add(c.id)
+  }
 }
 
 const sanitizeOptsFor = (room: Room, viewerId: string) => {
-  const opts: { opponentVisiblePosition?: Position; newCardEvents?: NewCardEvent[] } = {}
+  const opts: {
+    opponentVisiblePosition?: Position
+    newCardEvents?: NewCardEvent[]
+    visibleCurveIds?: Set<string>
+  } = {}
 
   if (room.gameState.phase === 'action') {
     const opponentEntry = Object.entries(room.gameState.players).find(([id]) => id !== viewerId)
@@ -82,6 +95,8 @@ const sanitizeOptsFor = (room: Room, viewerId: string) => {
       const original = room.turnStartPositions.get(oppId)
       if (original) opts.opponentVisiblePosition = original
     }
+    // action フェーズ中の曲線フィルタ用
+    opts.visibleCurveIds = room.turnStartCurveIds
   }
 
   const events = room.pendingNewCardEvents.get(viewerId)
@@ -424,10 +439,13 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     room.gameState = next.state
     pushHandEvents(room, connId, next.handLog)
 
-    // 打ち消しイベントを bulletEvents 風に両者へ配信するため、専用 TurnResult を作る
-    let extraResult: TurnResult | undefined
+    // 打ち消しイベントは発動者にのみ即時通知する。相手には秘匿し、TurnResult まで遅延配信する。
+    // (打ち消されて消えた相手の既存曲線は state.curves から既に除外されているため、
+    //  相手はその時点で「自分の曲線が消えた」事実だけは観測する可能性がある。
+    //  curveEvents のテキストで誰が何を打ち消したかは見せない)
+    let selfResult: TurnResult | undefined
     if (next.curveEvents.length > 0) {
-      extraResult = {
+      selfResult = {
         actions: {},
         damages: {},
         bulletEvents: [],
@@ -440,13 +458,13 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
 
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, extraResult, sanitizeOptsFor(room, connId)),
+      state: sanitizeStateForPlayer(room.gameState, connId, selfResult, sanitizeOptsFor(room, connId)),
     })
     for (const [otherId, pc] of room.players) {
       if (otherId === connId) continue
       send(pc.ws, {
         type: 'gameState',
-        state: sanitizeStateForPlayer(room.gameState, otherId, extraResult, sanitizeOptsFor(room, otherId)),
+        state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
       })
     }
     return

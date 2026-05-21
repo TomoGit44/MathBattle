@@ -677,6 +677,10 @@ export interface SanitizeOptions {
   opponentVisiblePosition?: Position
   // 演出用: 自プレイヤーの newCardEvents を me に載せる (プール/アイテムからの玉飛行アニメ)
   newCardEvents?: NewCardEvent[]
+  // action フェーズ中に「相手が新規定義した関数曲線」を秘匿するための許可リスト。
+  // ここに ID がある曲線か、または viewer 自身が所有する曲線だけが見える。
+  // 通常は「ターン開始時点で存在した曲線の ID 集合」を渡す。
+  visibleCurveIds?: Set<string>
 }
 
 export const sanitizeStateForPlayer = (
@@ -712,13 +716,21 @@ export const sanitizeStateForPlayer = (
     ? { ...me, newCardEvents: opts.newCardEvents }
     : me
 
+  // 関数曲線のフィルタ: action フェーズ中、相手が新規定義した曲線は viewer に見せない。
+  // 「viewer 自身が所有する曲線」 または 「visibleCurveIds (ターン開始時に存在した) に含まれる曲線」
+  // のみを表示する。
+  const visibleCurves =
+    state.phase === 'action' && opts?.visibleCurveIds
+      ? state.curves.filter((c) => c.owner === playerId || opts.visibleCurveIds!.has(c.id))
+      : state.curves
+
   return {
     phase: state.phase,
     turn: state.turn,
     me: meOut,
     opponent,
     bullets: state.bullets,
-    curves: state.curves,
+    curves: visibleCurves,
     items: state.items,
     fieldSize: state.fieldSize,
     settings: state.settings,
