@@ -240,7 +240,17 @@ export const checkBulletCollisions = (
       }
 
       if (aPrime && bPrime) {
-        // 素数弾同士はすり抜ける (何も起きない)
+        // 素数弾同士: 通常弾と同じく大小相殺。素数性は適用しない (= すり抜けない)。
+        if (a.value === b.value) {
+          alive.delete(i)
+          alive.delete(j)
+        } else if (a.value > b.value) {
+          alive.delete(j)
+          replacements.set(i, { ...a, value: a.value - b.value })
+        } else {
+          alive.delete(i)
+          replacements.set(j, { ...b, value: b.value - a.value })
+        }
         continue
       }
       if (aPrime && !bPrime) {
