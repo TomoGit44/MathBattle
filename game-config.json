@@ -7,14 +7,43 @@
   "mathXMax": 2,
   "itemSize": 40,
   "itemSpawnRates": {
-    "+": 0.1,
-    "-": 0.1,
-    "×": 0.1,
-    "÷": 0.1,
-    "pack": 0.55,
-    "heal": 0.05
+    "+": 0.19,
+    "-": 0.19,
+    "×": 0.19,
+    "÷": 0.19,
+    "pack": 0.2,
+    "heal": 0.04
   },
-  "maxItems": 5,
+  "maxItems": 7,
   "healAmountMin": 5,
-  "healAmountMax": 20
+  "healAmountMax": 20,
+  "slots": { "operator": 1, "number": 2, "other": 1 },
+  "initialSlots": { "operator": 2, "number": 3, "other": 2 },
+  "decayFactor": 0.5,
+  "pools": {
+    "operator": [
+      { "card": { "type": "operator", "operator": "+" }, "baseWeight": 1 },
+      { "card": { "type": "operator", "operator": "-" }, "baseWeight": 1 },
+      { "card": { "type": "operator", "operator": "×" }, "baseWeight": 1 },
+      { "card": { "type": "operator", "operator": "÷" }, "baseWeight": 1 }
+    ],
+    "number": [
+      { "card": { "type": "number", "value": 1 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 2 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 3 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 4 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 5 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 6 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 7 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 8 }, "baseWeight": 1 },
+      { "card": { "type": "number", "value": 9 }, "baseWeight": 1 }
+    ],
+    "other": [
+      { "card": { "type": "move", "direction": "up" }, "baseWeight": 1 },
+      { "card": { "type": "move", "direction": "down" }, "baseWeight": 1 },
+      { "card": { "type": "move", "direction": "left" }, "baseWeight": 1 },
+      { "card": { "type": "move", "direction": "right" }, "baseWeight": 1 },
+      { "card": { "type": "function" }, "baseWeight": 2 }
+    ]
+  }
 }

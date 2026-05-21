@@ -108,6 +108,9 @@ hooks/            → カスタム React フック (useGameSocket)
 
 ## 設定ファイル
 
+`lib/constants.ts` がすべてのデフォルト値を持ち、`game-config.json` がそれを上書きします。
+手軽に試したい値は `game-config.json` へ、フィールドサイズなど JSON で上書きできない項目は `lib/constants.ts` を直接編集してください。
+
 ### `game-config.json` — 動的バランス調整 (サーバー再起動で反映)
 
 プロジェクトルートに置くと WebSocket サーバー起動時に読み込まれます。ファイルがない場合はデフォルト値が使われます。

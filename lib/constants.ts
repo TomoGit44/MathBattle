@@ -95,7 +95,7 @@ export const DEFAULT_INITIAL_SLOTS: Record<SlotKind, number> = {
 }
 
 // 永続スタック式の確率低下係数。0.5 で配るたびに半減。
-export const DEFAULT_DECAY_FACTOR = 0.5
+export const DEFAULT_DECAY_FACTOR = 0.2
 
 // デフォルトの共通カードプール (旧仕様互換: 数字 1〜9 / 演算子4種 / 移動4方向)
 export const DEFAULT_POOLS: Record<SlotKind, PoolEntry[]> = {
