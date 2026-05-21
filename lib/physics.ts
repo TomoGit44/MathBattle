@@ -15,6 +15,19 @@ const calcSpeed = (value: number): number => {
   return BASE_BULLET_SPEED / (1 + Math.abs(value) * SPEED_DECAY_FACTOR)
 }
 
+// 弾の値が変わったとき、速度を新しい値に合わせて再計算する (進行方向は維持)。
+const withRecomputedSpeed = (bullet: Bullet, newValue: number): Bullet => {
+  const { dx, dy } = bullet.velocity
+  const oldSpeed = Math.sqrt(dx * dx + dy * dy)
+  if (oldSpeed === 0) return { ...bullet, value: newValue }
+  const newSpeed = calcSpeed(newValue)
+  return {
+    ...bullet,
+    value: newValue,
+    velocity: { dx: (dx / oldSpeed) * newSpeed, dy: (dy / oldSpeed) * newSpeed },
+  }
+}
+
 export const createBullet = (
   owner: string,
   position: Position,
@@ -241,15 +254,17 @@ export const checkBulletCollisions = (
 
       if (aPrime && bPrime) {
         // 素数弾同士: 通常弾と同じく大小相殺。素数性は適用しない (= すり抜けない)。
+        // 相殺後の残弾は値が変わり素数でなくなることが多いため、速度も再計算して
+        // 素数弾だったときの遅さ (大きな値由来) を引きずらないようにする。
         if (a.value === b.value) {
           alive.delete(i)
           alive.delete(j)
         } else if (a.value > b.value) {
           alive.delete(j)
-          replacements.set(i, { ...a, value: a.value - b.value })
+          replacements.set(i, withRecomputedSpeed(a, a.value - b.value))
         } else {
           alive.delete(i)
-          replacements.set(j, { ...b, value: b.value - a.value })
+          replacements.set(j, withRecomputedSpeed(b, b.value - a.value))
         }
         continue
       }
