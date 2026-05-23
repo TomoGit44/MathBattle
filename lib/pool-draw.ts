@@ -88,7 +88,12 @@ export const drawForSlots = (
       if (!drawn) break
       cards.push(drawn.card)
       perSlot[slot].push(drawn.card)
-      nextCounts[drawn.key] = (nextCounts[drawn.key] ?? 0) + 1
+      // 関数カードだけは確率低下の対象外 (drawCounts を加算しない)。
+      // → baseWeight × decayFactor^0 = baseWeight が常に維持され、出現頻度が試合中ずっと一定になる。
+      // 他のカード (数字・演算子・移動) は通常通り永続スタック式で減衰する。
+      if (drawn.card.type !== 'function') {
+        nextCounts[drawn.key] = (nextCounts[drawn.key] ?? 0) + 1
+      }
     }
   }
 

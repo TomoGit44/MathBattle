@@ -124,6 +124,7 @@
 - 一度配るたびに `drawCounts[cardKey]` が +1 され、そのカードの確率が `decayFactor` 倍に減衰する。
 - `decayFactor = 1.0` で減衰なし、`0.5` で配るたび半減。試合中ずっと持続 (リセットなし)。
 - 全エントリの実効重みが 0 まで減衰した場合は `baseWeight` ベースで再抽選するフォールバックがある (`lib/pool-draw.ts`)。
+- **例外: 関数カード (`{ type: 'function' }`) は確率低下の対象外**。`drawCounts` を加算しないため、出現確率は常に `baseWeight` のまま試合中固定。何度引かれても同じレートで出現し続ける。
 
 **カードプールの定義 (`game-config.json`):**
 ```json
