@@ -155,6 +155,8 @@ export interface PlayerState {
   drawCounts: Record<CardKey, number>
   // 次ターン補充が確定済みの (両者公開) カード列
   nextDraw: HandItem[]
+  // 一時切断中フラグ (true の間、メインアクションは自動 skip される。再接続で解除)
+  disconnected?: boolean
 }
 
 // --- ゲーム ---
@@ -214,6 +216,8 @@ export interface SanitizedPlayerState {
   handCount: number
   // 次ターン補充プレビューは両者公開
   nextDraw: HandItem[]
+  // 一時切断中フラグ (相手側 UI で「📴 切断中」インジケータを表示するため)
+  disconnected?: boolean
 }
 
 // --- クライアントに送るゲーム状態 ---
@@ -268,7 +272,9 @@ export interface TurnResult {
 
 // --- WebSocket メッセージ (Client → Server) ---
 export type ClientMessage =
-  | { type: 'join'; name: string }
+  // playerToken は再接続で「同じプレイヤー」と識別するための永続トークン (クライアント側で localStorage に保持)。
+  // 省略された場合はサーバー側でランダム生成 (= レガシークライアント互換 / 単一接続のみ可)。
+  | { type: 'join'; name: string; playerToken?: string }
   | { type: 'action'; action: Action }
 
 // --- WebSocket メッセージ (Server → Client) ---

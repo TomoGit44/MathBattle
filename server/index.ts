@@ -24,10 +24,12 @@ const CONFIG = loadConfig()
 const GAME_SETTINGS = toGameSettings(CONFIG)
 // 次ターン開始までの遅延 = アニメーション再生時間 + 1秒の余白
 const TURN_DELAY_MS = GAME_SETTINGS.animationDurationMs + 1000
+// 両プレイヤーが切断したままのルームを破棄するまでの猶予 (5分)
+const ROOM_CLEANUP_DELAY_MS = 5 * 60 * 1000
 
 interface PlayerConnection {
-  ws: WebSocket
-  id: string
+  ws: WebSocket | null   // null = 一時切断中。再接続で復帰する
+  token: string          // 永続プレイヤートークン (= PlayerState.id)
   name: string
 }
 
@@ -35,9 +37,11 @@ interface Room {
   id: string
   gameState: GameState
   pendingActions: Map<string, Action>
-  playerOrder: string[]
-  players: Map<string, PlayerConnection>
+  playerOrder: string[]                       // playerToken[]
+  players: Map<string, PlayerConnection>      // playerToken -> connection
   actionTimer: ReturnType<typeof setTimeout> | null
+  // 両者が切断したとき、5 分で破棄するためのタイマー
+  cleanupTimer: ReturnType<typeof setTimeout> | null
   // ターン開始時の各プレイヤー位置 (action フェーズ中の即時移動を相手に対して秘匿するため)
   turnStartPositions: Map<string, Position>
   // ターン開始時に存在した曲線の ID 集合 (action フェーズ中に相手が新規定義した曲線を秘匿するため)
@@ -47,8 +51,6 @@ interface Room {
   // 直近のドロー/拾得で「新規カードを玉飛行で表示する」イベント。1度送ったらクリア。
   pendingNewCardEvents: Map<string, NewCardEvent[]>
   // 手札変動ログを viewer ごとにバッファ。
-  // 補充 / 即時アクション (calc/move/discard) / 解決時 (attack/function) の追加・削除を蓄積し、
-  // 次のターン結果送信時に TurnResult.handLog として viewer ごとに配信する。
   pendingHandEvents: Map<string, HandLogEntry[]>
 }
 
@@ -61,6 +63,7 @@ const createRoom = (roomId: string): Room => ({
   playerOrder: [],
   players: new Map(),
   actionTimer: null,
+  cleanupTimer: null,
   turnStartPositions: new Map(),
   turnStartCurveIds: new Set(),
   pendingItemPickups: [],
@@ -73,8 +76,6 @@ const captureTurnStartPositions = (room: Room) => {
   for (const [id, p] of Object.entries(room.gameState.players)) {
     room.turnStartPositions.set(id, { ...p.position })
   }
-  // ターン開始時点の曲線 ID をスナップショット。action フェーズ中に追加された曲線は
-  // この集合に含まれないため、所有者でない viewer に対して秘匿される。
   room.turnStartCurveIds.clear()
   for (const c of room.gameState.curves) {
     room.turnStartCurveIds.add(c.id)
@@ -95,7 +96,6 @@ const sanitizeOptsFor = (room: Room, viewerId: string) => {
       const original = room.turnStartPositions.get(oppId)
       if (original) opts.opponentVisiblePosition = original
     }
-    // action フェーズ中の曲線フィルタ用
     opts.visibleCurveIds = room.turnStartCurveIds
   }
 
@@ -114,13 +114,12 @@ const getOrCreateRoom = (roomId: string): Room => {
   return room
 }
 
-const send = (ws: WebSocket, msg: ServerMessage) => {
-  if (ws.readyState === WebSocket.OPEN) {
+const send = (ws: WebSocket | null, msg: ServerMessage) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(encodeMessage(msg))
   }
 }
 
-// HandLog バッファに追記
 const pushHandEvent = (room: Room, viewerId: string, entry: HandLogEntry) => {
   const arr = room.pendingHandEvents.get(viewerId) ?? []
   arr.push(entry)
@@ -134,9 +133,51 @@ const pushHandEvents = (room: Room, viewerId: string, entries: HandLogEntry[]) =
   room.pendingHandEvents.set(viewerId, arr)
 }
 
-// TurnResult を viewer ごとに「自分の handLog のみ」付与した形に変換して送る。
+const isOnline = (conn: PlayerConnection): boolean =>
+  conn.ws !== null && conn.ws.readyState === WebSocket.OPEN
+
+const hasAnyOnline = (room: Room): boolean => {
+  for (const conn of room.players.values()) {
+    if (isOnline(conn)) return true
+  }
+  return false
+}
+
+const cancelCleanupTimer = (room: Room) => {
+  if (room.cleanupTimer) {
+    clearTimeout(room.cleanupTimer)
+    room.cleanupTimer = null
+  }
+}
+
+const scheduleRoomCleanup = (room: Room) => {
+  cancelCleanupTimer(room)
+  room.cleanupTimer = setTimeout(() => {
+    console.log(`[${room.id}] room cleanup (all players offline for ${ROOM_CLEANUP_DELAY_MS / 1000}s)`)
+    if (room.actionTimer) clearTimeout(room.actionTimer)
+    room.pendingNewCardEvents.clear()
+    room.pendingHandEvents.clear()
+    rooms.delete(room.id)
+  }, ROOM_CLEANUP_DELAY_MS)
+}
+
+// プレイヤーの disconnected フラグを更新し、必要なら相手に状態を再送する。
+const setPlayerDisconnected = (room: Room, token: string, disconnected: boolean) => {
+  const ps = room.gameState.players[token]
+  if (!ps) return
+  if ((ps.disconnected ?? false) === disconnected) return
+  room.gameState = {
+    ...room.gameState,
+    players: {
+      ...room.gameState.players,
+      [token]: { ...ps, disconnected },
+    },
+  }
+}
+
 const sendStateToAll = (room: Room, turnResult?: TurnResult) => {
   for (const [playerId, pc] of room.players) {
+    if (!isOnline(pc)) continue
     if (!room.gameState.players[playerId]) continue
 
     let personalResult: TurnResult | undefined = turnResult
@@ -161,6 +202,23 @@ const sendStateToAll = (room: Room, turnResult?: TurnResult) => {
       })
     }
   }
+}
+
+// 切断中のプレイヤーがいる場合、彼らの pendingAction を自動で skip に埋める。
+// (オプション A: 試合は止めず、切断者は skip 連打扱いで進行する)
+// 両者とも切断中なら何もしない (cleanup タイマーが進行)。
+const autoSkipDisconnectedPlayers = (room: Room): boolean => {
+  if (room.gameState.phase !== 'action') return false
+  if (!hasAnyOnline(room)) return false
+  let changed = false
+  for (const token of room.playerOrder) {
+    const conn = room.players.get(token)
+    if (!conn || isOnline(conn)) continue
+    if (room.pendingActions.has(token)) continue
+    room.pendingActions.set(token, { type: 'skip' })
+    changed = true
+  }
+  return changed
 }
 
 const startActionTimer = (room: Room) => {
@@ -191,7 +249,6 @@ const startNewTurn = (room: Room) => {
   for (const [pid, evts] of Object.entries(result.newCardEvents)) {
     if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
   }
-  // 補充ログをバッファに加える (次回 resolveRound で TurnResult.handLog として送る)
   for (const [pid, entries] of Object.entries(result.handLogEvents)) {
     pushHandEvents(room, pid, entries)
   }
@@ -199,6 +256,12 @@ const startNewTurn = (room: Room) => {
   sendStateToAll(room)
   room.pendingNewCardEvents.clear()
   startActionTimer(room)
+
+  // 切断中プレイヤーは自動 skip。相手が動けば即 resolveRound に進む。
+  autoSkipDisconnectedPlayers(room)
+  if (room.pendingActions.size >= 2 && room.gameState.phase === 'action') {
+    resolveRound(room)
+  }
 }
 
 const resolveRound = (room: Room) => {
@@ -213,7 +276,6 @@ const resolveRound = (room: Room) => {
   const { state, turnResult, handLogsByPlayer } = resolveActions(room.gameState, actions)
   room.gameState = state
 
-  // resolveActions 内で発生した hand 変動 (attack/function/item-kill) を viewer ごとにバッファへ追加
   for (const [pid, entries] of Object.entries(handLogsByPlayer)) {
     pushHandEvents(room, pid, entries)
   }
@@ -257,7 +319,6 @@ const resolveRound = (room: Room) => {
 
   sendStateToAll(room, turnResult)
   room.pendingNewCardEvents.clear()
-  // handLog はこのターン分で消費。次ターンは新たな補充ログから始まる。
   room.pendingHandEvents.clear()
 
   if (room.gameState.phase === 'gameover') return
@@ -267,28 +328,80 @@ const resolveRound = (room: Room) => {
   }, TURN_DELAY_MS)
 }
 
-const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => {
-  if (room.playerOrder.includes(connId)) return
+// 再接続: 既存の PlayerState に新しい WebSocket を再アタッチして、現在の state を再送する。
+const handleReconnect = (room: Room, ws: WebSocket, token: string, name: string) => {
+  const conn = room.players.get(token)
+  if (!conn) return false
+
+  // 既に別接続が生きている場合は古い方を閉じる (同一ブラウザでタブ複製などの保護)
+  if (conn.ws && conn.ws !== ws && conn.ws.readyState === WebSocket.OPEN) {
+    try { conn.ws.close() } catch { /* noop */ }
+  }
+  conn.ws = ws
+  if (name && name !== conn.name) conn.name = name
+
+  setPlayerDisconnected(room, token, false)
+  cancelCleanupTimer(room)
+
+  console.log(`[${room.id}] player reconnected: ${token}`)
+
+  // 状態を再送 (waiting / 対戦中)
+  if (room.gameState.phase === 'waiting' || room.playerOrder.length < 2) {
+    send(ws, { type: 'waiting', roomId: room.id })
+  } else if (room.gameState.phase === 'gameover') {
+    const { winnerId } = checkGameOver(room.gameState.players)
+    send(ws, {
+      type: 'gameOver',
+      winnerId,
+      state: sanitizeStateForPlayer(room.gameState, token, undefined, sanitizeOptsFor(room, token)),
+    })
+  } else {
+    send(ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, token, undefined, sanitizeOptsFor(room, token)),
+    })
+  }
+
+  // 相手側 UI に「切断中バッジ解除」を反映するため再送
+  for (const [otherToken, otherConn] of room.players) {
+    if (otherToken === token) continue
+    if (!isOnline(otherConn)) continue
+    send(otherConn.ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, otherToken, undefined, sanitizeOptsFor(room, otherToken)),
+    })
+  }
+  return true
+}
+
+const handleJoin = (room: Room, ws: WebSocket, token: string, name: string) => {
+  // 既存トークンなら再接続として扱う
+  if (room.players.has(token)) {
+    handleReconnect(room, ws, token, name)
+    return
+  }
+
   if (room.playerOrder.length >= 2) {
     send(ws, { type: 'error', message: 'ルームが満員です' })
+    try { ws.close() } catch { /* noop */ }
     return
   }
 
   const isFirst = room.playerOrder.length === 0
-  room.playerOrder.push(connId)
-  room.players.set(connId, { ws, id: connId, name })
-  room.gameState = addPlayer(room.gameState, connId, name, isFirst)
+  room.playerOrder.push(token)
+  room.players.set(token, { ws, token, name })
+  room.gameState = addPlayer(room.gameState, token, name, isFirst)
+  cancelCleanupTimer(room)
 
   if (room.playerOrder.length < 2) {
     send(ws, { type: 'waiting', roomId: room.id })
     return
   }
 
-  // 2人揃った → ゲーム開始 (初期手札を配り、turn=1 用の nextDraw を事前抽選)
+  // 2人揃った → ゲーム開始
   const started = startGame(room.gameState)
   room.gameState = started.state
 
-  // 初期手札の演出・HandLog をバッファに登録
   room.pendingNewCardEvents.clear()
   for (const [pid, evts] of Object.entries(started.newCardEvents)) {
     if (evts.length > 0) room.pendingNewCardEvents.set(pid, evts)
@@ -297,9 +410,6 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
     pushHandEvents(room, pid, entries)
   }
 
-  // 初回ドロー (turn=1 の補充)。
-  // 初期手札の orb 演出と turn=1 の補充演出を同時に飛ばすため、
-  // newCardEvents をマージする (初期手札 [0..N-1] のあと turn 1 補充 [N..N+M-1])。
   const drawn = executeDraw(room.gameState)
   room.gameState = drawn.state
   if (drawn.pickups.length > 0) {
@@ -320,17 +430,16 @@ const handleJoin = (room: Room, ws: WebSocket, connId: string, name: string) => 
   startActionTimer(room)
 }
 
-const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action) => {
+const handleAction = (room: Room, ws: WebSocket, token: string, action: Action) => {
   if (room.gameState.phase !== 'action') {
     send(ws, { type: 'error', message: 'アクション選択フェーズではありません' })
     return
   }
 
-  if (!room.playerOrder.includes(connId)) return
+  if (!room.playerOrder.includes(token)) return
 
-  // 移動カード使用は即時処理 (回数制限なし)
   if (action.type === 'use_move_card') {
-    const next = applyImmediateMove(room.gameState, connId, action.handIndex)
+    const next = applyImmediateMove(room.gameState, token, action.handIndex)
     if (!next) {
       send(ws, { type: 'error', message: '移動カードが選択されていません' })
       return
@@ -339,18 +448,17 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     if (next.pickups.length > 0) {
       room.pendingItemPickups.push(...next.pickups)
     }
-    pushHandEvents(room, connId, next.handLog)
+    pushHandEvents(room, token, next.handLog)
 
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
+      state: sanitizeStateForPlayer(room.gameState, token, undefined, sanitizeOptsFor(room, token)),
     })
     return
   }
 
-  // 計算アクションは即時処理 (1ターンに何度でも可能)
   if (action.type === 'calculate') {
-    const player = room.gameState.players[connId]
+    const player = room.gameState.players[token]
     if (!player) return
 
     if (!Array.isArray(action.cardIndices)) {
@@ -370,22 +478,20 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
       ...room.gameState,
       players: {
         ...room.gameState.players,
-        [connId]: { ...player, hand: newHand },
+        [token]: { ...player, hand: newHand },
       },
     }
 
-    // HandLog: 消費したカード (remove × N) + 結果トークン (add)
     for (const idx of action.cardIndices) {
       const item = handBefore[idx]
       if (!item) continue
-      pushHandEvent(room, connId, { kind: 'remove', cardLabel: handItemLabel(item), reason: 'calc' })
+      pushHandEvent(room, token, { kind: 'remove', cardLabel: handItemLabel(item), reason: 'calc' })
     }
     const last = newHand[newHand.length - 1]
     if (last) {
-      pushHandEvent(room, connId, { kind: 'add', cardLabel: handItemLabel(last), reason: 'calc_result' })
+      pushHandEvent(room, token, { kind: 'add', cardLabel: handItemLabel(last), reason: 'calc_result' })
     }
 
-    // 素数合成検出 → PRIME演出用の TurnResult を即時送信
     let primeResult: TurnResult | undefined
     if (last && last.type === 'token' && isPrimeBullet(last.value)) {
       primeResult = {
@@ -395,18 +501,18 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
         bulletSnapshots: [],
         playerPositions: {},
         curveDamages: {},
-        primeSynthesis: { [connId]: last.value },
+        primeSynthesis: { [token]: last.value },
       }
     }
 
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, primeResult, sanitizeOptsFor(room, connId)),
+      state: sanitizeStateForPlayer(room.gameState, token, primeResult, sanitizeOptsFor(room, token)),
     })
 
-    // 相手にも handCount 更新を反映 (TurnResult は付けない)
     for (const [otherId, pc] of room.players) {
-      if (otherId === connId) continue
+      if (otherId === token) continue
+      if (!isOnline(pc)) continue
       send(pc.ws, {
         type: 'gameState',
         state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
@@ -415,7 +521,6 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     return
   }
 
-  // 関数カードを使った関数定義は即時処理 (関数カード 1 枚を消費)
   if (action.type === 'function') {
     if (
       !Number.isInteger(action.functionCardIndex) ||
@@ -427,7 +532,7 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     }
     const next = applyFunctionImmediate(
       room.gameState,
-      connId,
+      token,
       action.functionCardIndex,
       action.cardIndices,
       action.xPositions
@@ -437,12 +542,8 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
       return
     }
     room.gameState = next.state
-    pushHandEvents(room, connId, next.handLog)
+    pushHandEvents(room, token, next.handLog)
 
-    // 打ち消しイベントは発動者にのみ即時通知する。相手には秘匿し、TurnResult まで遅延配信する。
-    // (打ち消されて消えた相手の既存曲線は state.curves から既に除外されているため、
-    //  相手はその時点で「自分の曲線が消えた」事実だけは観測する可能性がある。
-    //  curveEvents のテキストで誰が何を打ち消したかは見せない)
     let selfResult: TurnResult | undefined
     if (next.curveEvents.length > 0) {
       selfResult = {
@@ -458,10 +559,11 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
 
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, selfResult, sanitizeOptsFor(room, connId)),
+      state: sanitizeStateForPlayer(room.gameState, token, selfResult, sanitizeOptsFor(room, token)),
     })
     for (const [otherId, pc] of room.players) {
-      if (otherId === connId) continue
+      if (otherId === token) continue
+      if (!isOnline(pc)) continue
       send(pc.ws, {
         type: 'gameState',
         state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
@@ -470,22 +572,22 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     return
   }
 
-  // 捨て札は即時処理 (回数制限なし)
   if (action.type === 'discard') {
-    const next = applyDiscard(room.gameState, connId, action.handIndex)
+    const next = applyDiscard(room.gameState, token, action.handIndex)
     if (!next) {
       send(ws, { type: 'error', message: '捨てるカードが不正です' })
       return
     }
     room.gameState = next.state
-    pushHandEvents(room, connId, next.handLog)
+    pushHandEvents(room, token, next.handLog)
 
     send(ws, {
       type: 'gameState',
-      state: sanitizeStateForPlayer(room.gameState, connId, undefined, sanitizeOptsFor(room, connId)),
+      state: sanitizeStateForPlayer(room.gameState, token, undefined, sanitizeOptsFor(room, token)),
     })
     for (const [otherId, pc] of room.players) {
-      if (otherId === connId) continue
+      if (otherId === token) continue
+      if (!isOnline(pc)) continue
       send(pc.ws, {
         type: 'gameState',
         state: sanitizeStateForPlayer(room.gameState, otherId, undefined, sanitizeOptsFor(room, otherId)),
@@ -494,43 +596,64 @@ const handleAction = (room: Room, ws: WebSocket, connId: string, action: Action)
     return
   }
 
-  if (room.pendingActions.has(connId)) {
+  if (room.pendingActions.has(token)) {
     send(ws, { type: 'error', message: 'すでにアクションを送信済みです' })
     return
   }
 
-  room.pendingActions.set(connId, action)
+  room.pendingActions.set(token, action)
 
   if (room.pendingActions.size >= 2) {
     resolveRound(room)
   }
 }
 
-const handleDisconnect = (room: Room, connId: string) => {
-  if (!room.playerOrder.includes(connId)) return
+// 切断時の処理 (オプション A):
+// - waiting フェーズで対戦相手未到着 → playerOrder から外して即座に空きを戻す
+// - 対戦中 → 即 gameover にせず、disconnected=true でマークし、action フェーズ中なら自動 skip
+// - 両者切断 → 5 分後にルーム破棄
+const handleDisconnect = (room: Room, token: string, ws: WebSocket) => {
+  const conn = room.players.get(token)
+  if (!conn) return
+  // 既に別の ws に張り替え済みなら何もしない (古い ws の close イベントを無視)
+  if (conn.ws !== ws) return
 
-  if (room.gameState.phase !== 'waiting' && room.gameState.phase !== 'gameover') {
-    const player = room.gameState.players[connId]
-    if (player) {
-      room.gameState.players[connId] = { ...player, hp: 0 }
-      room.gameState = { ...room.gameState, phase: 'gameover' }
-      sendStateToAll(room)
+  conn.ws = null
+
+  // どのフェーズでもプレイヤー情報は残す (再接続で復帰できるように)。
+  // gameover/waiting/対戦中いずれも、ルームは cleanup タイマー (5 分) で破棄される。
+  setPlayerDisconnected(room, token, true)
+  console.log(`[${room.id}] player disconnected (kept, phase=${room.gameState.phase}): ${token}`)
+
+  // 相手に「切断中バッジ表示」を通知
+  for (const [otherToken, otherConn] of room.players) {
+    if (otherToken === token) continue
+    if (!isOnline(otherConn)) continue
+    send(otherConn.ws, {
+      type: 'gameState',
+      state: sanitizeStateForPlayer(room.gameState, otherToken, undefined, sanitizeOptsFor(room, otherToken)),
+    })
+  }
+
+  // action フェーズ中なら、切断者のメインアクションを skip で代行 → 相手が動けば解決へ
+  if (room.gameState.phase === 'action' && hasAnyOnline(room)) {
+    autoSkipDisconnectedPlayers(room)
+    if (room.pendingActions.size >= 2) {
+      resolveRound(room)
     }
   }
 
-  room.players.delete(connId)
-
-  if (room.players.size === 0) {
+  // 両者切断 → 5 分後に破棄
+  if (!hasAnyOnline(room)) {
     if (room.actionTimer) clearTimeout(room.actionTimer)
-    room.pendingNewCardEvents.clear()
-    room.pendingHandEvents.clear()
-    rooms.delete(room.id)
+    scheduleRoomCleanup(room)
   }
 }
 
 // --- HTTP + WebSocket サーバー起動 ---
 const PORT = Number(process.env.PORT) || 1999
-let connCounter = 0
+let tokenCounter = 0
+const generateFallbackToken = (): string => `srv-${Date.now()}-${tokenCounter++}`
 
 const httpServer = createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -575,20 +698,14 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
   const pathParts = url.pathname.split('/').filter(Boolean)
   const roomId = pathParts[pathParts.length - 1] ?? 'default'
-  const connId = `conn-${Date.now()}-${connCounter++}`
 
   const room = getOrCreateRoom(roomId)
+  // このソケットに紐づく playerToken (join 後に確定)
+  let myToken: string | null = null
 
-  console.log(`[${roomId}] Player connected: ${connId}`)
+  console.log(`[${roomId}] socket connected (awaiting join)`)
 
-  if (room.playerOrder.length >= 2) {
-    send(ws, { type: 'error', message: 'ルームが満員です' })
-    ws.close()
-    return
-  }
-
-  send(ws, { type: 'waiting', roomId })
-
+  // 受信時に join を待つ。満員判定は join 時に行う (= 切断中プレイヤーの再接続を許可するため)。
   ws.on('message', (data) => {
     let parsed: ClientMessage
     try {
@@ -600,26 +717,39 @@ wss.on('connection', (ws, req) => {
 
     try {
       switch (parsed.type) {
-        case 'join':
-          if (typeof parsed.name === 'string') {
-            handleJoin(room, ws, connId, parsed.name)
-          }
+        case 'join': {
+          if (typeof parsed.name !== 'string') return
+          const token =
+            typeof parsed.playerToken === 'string' && parsed.playerToken.length > 0
+              ? parsed.playerToken
+              : generateFallbackToken()
+          myToken = token
+          handleJoin(room, ws, token, parsed.name)
           break
+        }
         case 'action':
+          if (!myToken) {
+            send(ws, { type: 'error', message: 'まだ join していません' })
+            return
+          }
           if (parsed.action && typeof parsed.action === 'object') {
-            handleAction(room, ws, connId, parsed.action)
+            handleAction(room, ws, myToken, parsed.action)
           }
           break
       }
     } catch (err) {
-      console.error(`[${roomId}] handler error for ${connId}:`, err)
+      console.error(`[${roomId}] handler error:`, err)
       send(ws, { type: 'error', message: 'サーバー内部エラー' })
     }
   })
 
   ws.on('close', () => {
-    console.log(`[${roomId}] Player disconnected: ${connId}`)
-    handleDisconnect(room, connId)
+    if (myToken) {
+      console.log(`[${roomId}] socket closed (token=${myToken})`)
+      handleDisconnect(room, myToken, ws)
+    } else {
+      console.log(`[${roomId}] socket closed (pre-join)`)
+    }
   })
 })
 

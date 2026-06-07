@@ -112,6 +112,7 @@ export const addPlayer = (
     hand: [],
     drawCounts: {},
     nextDraw: [],
+    disconnected: false,
   }
   return {
     ...state,
@@ -701,6 +702,7 @@ export const sanitizeStateForPlayer = (
         facing: opponentEntry[1].facing,
         handCount: opponentEntry[1].hand.length,
         nextDraw: opponentEntry[1].nextDraw,
+        disconnected: opponentEntry[1].disconnected ?? false,
       }
     : {
         id: '',
