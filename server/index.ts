@@ -655,6 +655,8 @@ const PORT = Number(process.env.PORT) || 1999
 let tokenCounter = 0
 const generateFallbackToken = (): string => `srv-${Date.now()}-${tokenCounter++}`
 
+const SERVER_START_TIME = Date.now()
+
 const httpServer = createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
@@ -663,6 +665,23 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(200)
     res.end()
+    return
+  }
+
+  // ヘルスチェックエンドポイント (UptimeRobot / Render用)
+  // 監視サービスはここに対してGETを送り、200が返れば「稼働中」と判定する
+  if (req.url === '/health') {
+    const uptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        status: 'ok',
+        uptime: uptimeSec,
+        rooms: rooms.size,
+        connections: wss?.clients.size ?? 0,
+        timestamp: new Date().toISOString(),
+      })
+    )
     return
   }
 

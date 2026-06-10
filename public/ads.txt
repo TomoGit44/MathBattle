@@ -1,0 +1,10 @@
+# Google AdSense用 ads.txt
+# 重要: 下記の "pub-XXXXXXXXXXXXXXXX" をあなたのAdSenseサイト運営者IDに置き換えてください
+# (環境変数 NEXT_PUBLIC_ADSENSE_CLIENT_ID から "ca-" を除いた部分)
+#
+# 例: NEXT_PUBLIC_ADSENSE_CLIENT_ID=ca-pub-1234567890123456
+#     → pub-1234567890123456 と書く
+#
+# 設定後、本番URLで https://あなたのサイト/ads.txt にアクセスして
+# テキストが表示されることを確認してください。
+google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0

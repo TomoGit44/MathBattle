@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { BackgroundGrid } from '@/components/game/BackgroundGrid'
+import { ShareButtons } from '@/components/share/ShareButtons'
+import { SupportButton } from '@/components/support/SupportButton'
+import { AdSlot } from '@/components/ads/AdSlot'
+import { trackEvent } from '@/components/analytics/track'
 
 // 旧仕様 (デッキ構築) で localStorage に保存されていたキー。
 // 新仕様では使われないので起動時に削除する。
@@ -32,11 +36,13 @@ const Home = () => {
   const handleCreate = () => {
     if (!name.trim()) return
     const id = generateRoomId()
+    trackEvent.roomCreate()
     router.push(`/game/${id}?name=${encodeURIComponent(name.trim())}`)
   }
 
   const handleJoin = () => {
     if (!name.trim() || !roomId.trim()) return
+    trackEvent.roomJoin()
     router.push(`/game/${roomId.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`)
   }
 
@@ -116,6 +122,22 @@ const Home = () => {
           >
             参加
           </button>
+        </div>
+      </div>
+
+      {/* フッター: シェア・支援・広告 */}
+      <div className="relative w-full max-w-md mt-4 flex flex-col items-center gap-4">
+        <div className="text-text-faint text-xs text-center">
+          友達を誘って対戦しよう
+        </div>
+        <ShareButtons />
+
+        <div className="mt-2">
+          <SupportButton />
+        </div>
+
+        <div className="w-full mt-4">
+          <AdSlot slot="lobby" />
         </div>
       </div>
     </div>
